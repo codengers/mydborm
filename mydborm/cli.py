@@ -17,7 +17,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-cli     = typer.Typer(
+cli = typer.Typer(
     name="mydborm",
     help="mydborm — Lightweight ORM for MySQL and YugabyteDB",
     add_completion=False,
