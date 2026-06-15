@@ -1,0 +1,249 @@
+# =============================================================================
+# File        : tests/test_query_builder.py
+# Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.3.0
+# License     : MIT
+# Description : pytest tests for QueryBuilder — covers where, operators,
+#               order_by, limit, offset, aggregates, first, exists, delete.
+# =============================================================================
+
+import pytest
+from mydborm import db, BaseModel, IntField, StrField, BoolField, FloatField
+
+
+# ------------------------------------------------------------------ #
+#  Test model                                                          #
+# ------------------------------------------------------------------ #
+
+class Item(BaseModel):
+    __tablename__ = "items"
+    id     = IntField(primary_key=True)
+    name   = StrField(max_length=100, nullable=False)
+    price  = FloatField(nullable=False)
+    active = BoolField(default=True)
+    stock  = IntField(nullable=False)
+
+
+# ------------------------------------------------------------------ #
+#  Fixtures                                                            #
+# ------------------------------------------------------------------ #
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_db():
+    db.configure(
+        dialect="mysql", host="127.0.0.1",
+        port=3307, user="root", password="root", database="testdb"
+    )
+    Item.create_table()
+    yield
+    Item.drop_table()
+    db.close()
+
+
+@pytest.fixture(autouse=True)
+def seed_table():
+    """Clean and seed table before each test."""
+    with db.connect() as conn:
+        conn.cursor().execute("DELETE FROM items")
+
+    Item.create(name="Apple",  price=1.50,  active=True,  stock=100)
+    Item.create(name="Banana", price=0.75,  active=True,  stock=200)
+    Item.create(name="Cherry", price=3.00,  active=False, stock=50)
+    Item.create(name="Date",   price=5.00,  active=True,  stock=30)
+    Item.create(name="Elderberry", price=8.00, active=False, stock=10)
+    yield
+
+
+# ------------------------------------------------------------------ #
+#  Basic query                                                         #
+# ------------------------------------------------------------------ #
+
+def test_query_all():
+    rows = Item.query().all()
+    assert len(rows) == 5
+
+
+def test_query_where_equality():
+    rows = Item.query().where("active", True).all()
+    assert len(rows) == 3
+    assert all(r["active"] for r in rows)
+
+
+def test_query_where_multiple():
+    rows = (Item.query()
+                .where("active", True)
+                .where("stock__gt", 50)
+                .all())
+    assert len(rows) == 2
+    names = {r["name"] for r in rows}
+    assert names == {"Apple", "Banana"}
+
+
+# ------------------------------------------------------------------ #
+#  Operators                                                           #
+# ------------------------------------------------------------------ #
+
+def test_operator_gt():
+    rows = Item.query().where("price__gt", 3.00).all()
+    assert len(rows) == 2
+    assert all(r["price"] > 3.00 for r in rows)
+
+
+def test_operator_lt():
+    rows = Item.query().where("price__lt", 2.00).all()
+    assert len(rows) == 2
+
+
+def test_operator_gte():
+    rows = Item.query().where("price__gte", 3.00).all()
+    assert len(rows) == 3
+
+
+def test_operator_lte():
+    rows = Item.query().where("price__lte", 1.50).all()
+    assert len(rows) == 2
+
+
+def test_operator_ne():
+    rows = Item.query().where("name__ne", "Apple").all()
+    assert len(rows) == 4
+    assert all(r["name"] != "Apple" for r in rows)
+
+
+def test_operator_like():
+    rows = Item.query().where("name__like", "Che%").all()
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Cherry"
+
+
+def test_operator_in():
+    rows = Item.query().where("name__in", ["Apple", "Date"]).all()
+    assert len(rows) == 2
+    names = {r["name"] for r in rows}
+    assert names == {"Apple", "Date"}
+
+
+def test_operator_in_invalid():
+    with pytest.raises(ValueError, match="__in requires a list"):
+        Item.query().where("name__in", "Apple")
+
+
+# ------------------------------------------------------------------ #
+#  Ordering                                                            #
+# ------------------------------------------------------------------ #
+
+def test_order_by_asc():
+    rows = Item.query().order_by("price").all()
+    prices = [r["price"] for r in rows]
+    assert prices == sorted(prices)
+
+
+def test_order_by_desc():
+    rows = Item.query().order_by("price", desc=True).all()
+    prices = [r["price"] for r in rows]
+    assert prices == sorted(prices, reverse=True)
+
+
+def test_order_by_name():
+    rows = Item.query().order_by("name").all()
+    names = [r["name"] for r in rows]
+    assert names == sorted(names)
+
+
+# ------------------------------------------------------------------ #
+#  Pagination                                                          #
+# ------------------------------------------------------------------ #
+
+def test_limit():
+    rows = Item.query().order_by("price").limit(3).all()
+    assert len(rows) == 3
+
+
+def test_offset():
+    all_rows    = Item.query().order_by("price").all()
+    offset_rows = Item.query().order_by("price").offset(2).all()
+    assert offset_rows[0]["name"] == all_rows[2]["name"]
+
+
+def test_limit_offset():
+    rows = Item.query().order_by("price").limit(2).offset(1).all()
+    assert len(rows) == 2
+
+
+# ------------------------------------------------------------------ #
+#  First                                                               #
+# ------------------------------------------------------------------ #
+
+def test_first():
+    row = Item.query().order_by("price").first()
+    assert row is not None
+    assert row["name"] == "Banana"
+
+
+def test_first_no_match():
+    row = Item.query().where("price__gt", 9999).first()
+    assert row is None
+
+
+# ------------------------------------------------------------------ #
+#  Aggregates                                                          #
+# ------------------------------------------------------------------ #
+
+def test_count():
+    assert Item.query().count() == 5
+    assert Item.query().where("active", True).count() == 3
+
+
+def test_exists_true():
+    assert Item.query().where("name", "Apple").exists() is True
+
+
+def test_exists_false():
+    assert Item.query().where("name", "Ghost").exists() is False
+
+
+def test_sum():
+    total = Item.query().sum("price")
+    assert abs(total - 18.25) < 0.01
+
+
+def test_avg():
+    avg = Item.query().where("active", True).avg("price")
+    expected = (1.50 + 0.75 + 5.00) / 3
+    assert abs(avg - expected) < 0.01
+
+
+def test_min():
+    assert Item.query().min("price") == 0.75
+
+
+def test_max():
+    assert Item.query().max("price") == 8.00
+
+
+# ------------------------------------------------------------------ #
+#  Delete via query                                                    #
+# ------------------------------------------------------------------ #
+
+def test_query_delete():
+    deleted = Item.query().where("active", False).delete()
+    assert deleted == 2
+    assert Item.query().count() == 3
+
+
+def test_query_delete_with_operator():
+    deleted = Item.query().where("price__gt", 4.00).delete()
+    assert deleted == 2
+    assert Item.query().count() == 3
+
+
+# ------------------------------------------------------------------ #
+#  Repr                                                                #
+# ------------------------------------------------------------------ #
+
+def test_repr():
+    q = Item.query().where("active", True).limit(5)
+    assert "QueryBuilder" in repr(q)
+    assert "active" in repr(q)
