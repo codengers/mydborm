@@ -265,6 +265,159 @@ def tables(
         console.print(f"\n[bold red]✘ Error:[/bold red] {e}\n")
         raise typer.Exit(code=1)
 
+# ------------------------------------------------------------------ #
+#  migrate                                                             #
+# ------------------------------------------------------------------ #
+
+@cli.command()
+def migrate(
+    dialect:     str  = typer.Option("mysql",     "--dialect",  "-d"),
+    host:        str  = typer.Option("127.0.0.1", "--host",     "-h"),
+    port:        int  = typer.Option(3306,        "--port",     "-p"),
+    user:        str  = typer.Option("root",      "--user",     "-u"),
+    password:    str  = typer.Option("",          "--password", "-w", hide_input=True),
+    database:    str  = typer.Option("testdb",    "--database", "-n"),
+    status:      bool = typer.Option(False,       "--status",   "-s", help="Show migration history"),
+    rollback:    bool = typer.Option(False,       "--rollback", "-r", help="Rollback last migration"),
+    model_path:  str  = typer.Option("",          "--model",    "-m", help="Python import path to model e.g. myapp.models.User"),
+):
+    """
+    Run, inspect, or rollback migrations.
+
+    Examples:
+        mydborm migrate --status
+        mydborm migrate --model myapp.models.User
+        mydborm migrate --rollback --model myapp.models.User
+    """
+    from mydborm.db import db
+    import mydborm.migrations as mg
+
+    # Configure DB
+    db.configure(
+        dialect=dialect, host=host, port=port,
+        user=user, password=password, database=database
+    )
+
+    # ── Status ────────────────────────────────────────────────────── #
+    if status:
+        records = mg.migration_status()
+        if not records:
+            console.print("\n[yellow]No migrations applied yet.[/yellow]\n")
+            return
+
+        t = Table(
+            title="Migration History",
+            box=box.ROUNDED,
+            border_style="cyan",
+            show_lines=True,
+        )
+        t.add_column("ID",          style="dim",        width=4)
+        t.add_column("Version",     style="cyan",       width=18)
+        t.add_column("Description", style="white")
+        t.add_column("Applied At",  style="green",      width=20)
+        t.add_column("Status",      style="bold",       width=12)
+
+        for r in records:
+            status_str = (
+                "[red]Rolled Back[/red]"
+                if r["rolled_back"]
+                else "[green]Applied[/green]"
+            )
+            t.add_row(
+                str(r["id"]),
+                r["version"],
+                r["description"],
+                str(r["applied_at"]),
+                status_str,
+            )
+
+        console.print()
+        console.print(t)
+        console.print(f"\n[dim]{len(records)} migration(s) found.[/dim]\n")
+        return
+
+    # ── Rollback / Apply — need a model ───────────────────────────── #
+    if not model_path:
+        console.print(
+            "\n[yellow]Tip:[/yellow] Use --status to see migration history.\n"
+            "     Use --model <import.path.ModelName> to migrate a model.\n"
+        )
+        return
+
+    # Dynamically import the model class
+    try:
+        parts      = model_path.rsplit(".", 1)
+        module     = __import__(parts[0], fromlist=[parts[1]])
+        model_cls  = getattr(module, parts[1])
+    except Exception as e:
+        console.print(f"\n[red]✘ Could not import model:[/red] {e}\n")
+        raise typer.Exit(code=1)
+
+    # ── Rollback ──────────────────────────────────────────────────── #
+    if rollback:
+        console.print(
+            f"\n[yellow]Rolling back[/yellow] "
+            f"[bold]{model_cls._table}[/bold] ..."
+        )
+        result = mg.rollback(model_cls)
+        if result["applied"]:
+            console.print(f"[green]✔[/green] {result['message']}\n")
+        else:
+            console.print(f"[yellow]⚠[/yellow]  {result['message']}\n")
+        return
+
+    # ── Apply migration ───────────────────────────────────────────── #
+    console.print(
+        f"\n[cyan]Inspecting[/cyan] "
+        f"[bold]{model_cls._table}[/bold] ..."
+    )
+
+    # Show diff first
+    diff = mg.diff_schema(model_cls)
+
+    if not diff["new_table"] and not diff["add_columns"] and not diff["drop_columns"]:
+        console.print(
+            f"[green]✔[/green] Table [bold]{diff['table']}[/bold] "
+            f"is already up to date.\n"
+        )
+        return
+
+    # Show what will change
+    t = Table(
+        title=f"Planned changes for [bold]{diff['table']}[/bold]",
+        box=box.SIMPLE_HEAVY,
+        border_style="yellow",
+    )
+    t.add_column("Action",  style="bold", width=12)
+    t.add_column("Column",  style="white")
+    t.add_column("Details", style="dim")
+
+    if diff["new_table"]:
+        t.add_row("[green]CREATE[/green]", diff["table"], "New table")
+
+    for col, defn in diff["add_columns"].items():
+        t.add_row("[green]ADD[/green]", col, defn)
+
+    for col in diff["drop_columns"]:
+        t.add_row("[red]DROP[/red]", col, "Column removed from model")
+
+    console.print()
+    console.print(t)
+
+    # Apply
+    result = mg.migrate(model_cls)
+    console.print()
+    if result["applied"]:
+        for sql in result["sqls"]:
+            console.print(f"[dim]  ▶ {sql}[/dim]")
+        console.print(
+            f"\n[green]✔[/green] {result['message']}\n"
+        )
+    else:
+        console.print(
+            f"[yellow]⚠[/yellow]  {result['message']}\n"
+        )
+
 
 # ------------------------------------------------------------------ #
 #  Entry point                                                         #
