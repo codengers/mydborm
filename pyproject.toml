@@ -29,7 +29,7 @@ ui  = ["streamlit>=1.30"]
 dev = ["pytest>=7", "pytest-cov", "ruff", "hatchling"]
 
 [project.scripts]
-mydborm = "mydborm.cli:app"
+mydborm = "mydborm.cli:cli"
 
 [project.urls]
 Homepage   = "https://pypi.org/project/mydborm/"
