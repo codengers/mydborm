@@ -1,3 +1,14 @@
+# =============================================================================
+# File        : tests/test_model.py
+# Project     : mydborm — Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.2.0
+# License     : MIT
+# Description : pytest integration tests for BaseModel CRUD operations
+#               against a live MySQL instance. Covers create, all, get,
+#               filter, update, delete, count, and exists.
+# =============================================================================
 """
 test_model.py â€” BaseModel CRUD tests against live MySQL.
 """

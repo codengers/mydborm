@@ -1,3 +1,29 @@
+# =============================================================================
+# File        : model.py
+# Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.2.0
+# License     : MIT
+# Description : Core ORM engine. Provides ModelMeta metaclass for
+#               declarative field introspection at class definition time
+#               and BaseModel with full CRUD: create_table, drop_table,
+#               create, all, get, filter, update, delete, count, exists.
+# =============================================================================
+
+# =============================================================================
+# File        : model.py
+# Project     : mydborm — Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.2.0
+# License     : MIT
+# Description : Core ORM engine. Provides ModelMeta metaclass for
+#               declarative field introspection at class definition time,
+#               and BaseModel with full CRUD operations: create_table,
+#               drop_table, create, all, get, filter, update, delete,
+#               count, and exists.
+# =============================================================================
 """
 model.py â€” BaseModel with metaclass for mydborm.
 Provides declarative model definition + CRUD operations.
@@ -250,3 +276,4 @@ class BaseModel(metaclass=ModelMeta):
 
     def __repr__(self):
         return f"<{self.__class__.__name__} table={self._table!r}>"
+

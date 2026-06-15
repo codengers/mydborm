@@ -1,3 +1,28 @@
+# =============================================================================
+# File        : __init__.py
+# Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.2.0
+# License     : MIT
+# Description : Package entry point. Exposes the public API surface:
+#               db connection manager, BaseModel, and all field types.
+#               Install : pip install mydborm
+#               Usage   : from mydborm import db, BaseModel, IntField
+# =============================================================================
+
+# =============================================================================
+# File        : __init__.py
+# Project     : mydborm — Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.2.0
+# License     : MIT
+# Description : Package entry point. Exposes the public API surface:
+#               db connection manager, BaseModel, and all field types.
+#               Install: pip install mydborm
+#               Usage  : from mydborm import db, BaseModel, IntField
+# =============================================================================
 """
 mydborm â€” Lightweight ORM for MySQL and YugabyteDB.
 """
@@ -37,3 +62,4 @@ __all__ = [
     "JSONField",
     "ForeignKeyField",
 ]
+

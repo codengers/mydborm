@@ -1,3 +1,28 @@
+# =============================================================================
+# File        : db.py
+# Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.2.0
+# License     : MIT
+# Description : Cross-platform connection manager. Supports MySQL and
+#               YugabyteDB via PostgreSQL wire protocol (psycopg2).
+#               Provides thread-safe connection pooling, context manager
+#               support, and DATABASE_URL environment variable config.
+# =============================================================================
+
+# =============================================================================
+# File        : db.py
+# Project     : mydborm � Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.2.0
+# License     : MIT
+# Description : Cross-platform connection manager. Supports MySQL and
+#               YugabyteDB via PostgreSQL wire protocol (psycopg2).
+#               Provides thread-safe connection pooling, context manager
+#               support, and DATABASE_URL environment variable config.
+# =============================================================================
 """
 db.py — Cross-platform connection manager for mydborm.
 Supports MySQL and YugabyteDB (via PostgreSQL wire protocol).
@@ -181,3 +206,4 @@ class ConnectionManager:
 
 # Global singleton — import and use anywhere
 db = ConnectionManager()
+

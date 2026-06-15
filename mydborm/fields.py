@@ -1,3 +1,30 @@
+# =============================================================================
+# File        : fields.py
+# Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.2.0
+# License     : MIT
+# Description : Field definitions for declarative model schemas.
+#               Includes IntField, StrField, TextField, BoolField,
+#               FloatField, DecimalField, DateField, DateTimeField,
+#               JSONField and ForeignKeyField with validation and
+#               SQL column definition generation.
+# =============================================================================
+
+# =============================================================================
+# File        : fields.py
+# Project     : mydborm — Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.2.0
+# License     : MIT
+# Description : Field definitions for declarative model schemas.
+#               Includes IntField, StrField, TextField, BoolField,
+#               FloatField, DecimalField, DateField, DateTimeField,
+#               JSONField, and ForeignKeyField with validation and
+#               SQL column definition generation.
+# =============================================================================
 """
 fields.py â€” Field definitions for mydborm models.
 Supports MySQL and YugabyteDB (YSQL) column types.
@@ -200,3 +227,4 @@ class ForeignKeyField(Field):
     def to_sql_def(self) -> str:
         base = super().to_sql_def()
         return f"{base}  -- FK -> {self.to}"
+

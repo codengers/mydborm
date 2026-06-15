@@ -1,3 +1,13 @@
+# =============================================================================
+# File        : tests/test_connection.py
+# Project     : mydborm — Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.2.0
+# License     : MIT
+# Description : pytest tests for ConnectionManager — covers configure,
+#               connect, dialect validation, and error handling.
+# =============================================================================
 """
 test_connection.py â€” Connection manager tests.
 """

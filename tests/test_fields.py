@@ -1,3 +1,14 @@
+# =============================================================================
+# File        : tests/test_fields.py
+# Project     : mydborm — Lightweight ORM for MySQL and YugabyteDB
+# Author      : Atikrant Upadhye
+# Created     : 2026-06-15
+# Version     : 0.2.0
+# License     : MIT
+# Description : pytest tests for all field types — validates type checking,
+#               max length enforcement, nullable constraints, SQL definition
+#               generation, and ForeignKeyField output.
+# =============================================================================
 """
 test_fields.py â€” Field validation tests.
 """
