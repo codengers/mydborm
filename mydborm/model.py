@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # File        : model.py
 # Project     : mydborm � Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
@@ -16,8 +16,10 @@ model.py — BaseModel with metaclass for mydborm.
 Provides declarative model definition + CRUD operations.
 """
 
+from typing import Optional
 from .fields import Field
 from .db import db
+
 
 # ------------------------------------------------------------------ #
 #  QueryBuilder                                                        #
@@ -168,7 +170,7 @@ class QueryBuilder:
         sql, params = self._build_sql()
         return self._model._fetch(sql + ";", params)
 
-    def first(self) -> dict | None:
+    def first(self) -> Optional[dict]:
         """Return first matching row or None."""
         original_limit = self._limit
         self._limit    = 1
@@ -420,9 +422,10 @@ class BaseModel(metaclass=ModelMeta):
         for fname, field in cls._fields.items():
             col_defs.append(f"  {fname} {field.to_sql_def()}")
 
+        col_separator = ",\n"
         sql = (
             f"CREATE TABLE {exist_clause} {cls._table} "
-            f"(\n{',\n'.join(col_defs)}\n);"
+            f"(\n{col_separator.join(col_defs)}\n);"
         )
         with db.connect() as conn:
             cur = conn.cursor()
@@ -491,7 +494,7 @@ class BaseModel(metaclass=ModelMeta):
         return cls._fetch(f"SELECT * FROM {cls._table};")
 
     @classmethod
-    def get(cls, **kwargs) -> dict | None:
+    def get(cls, **kwargs) -> Optional[dict]:
         """
         Return a single row matching kwargs or None.
 
@@ -614,7 +617,7 @@ class BaseModel(metaclass=ModelMeta):
         pk  = self._get_pk_value()
         return related_model.query().where(fk, pk).all()
 
-    def belongs_to(self, related_model, foreign_key: str = None) -> dict | None:
+    def belongs_to(self, related_model, foreign_key: str = None) -> Optional[dict]:
         """
         Return the parent record this instance belongs to.
 
@@ -682,4 +685,5 @@ class BaseModel(metaclass=ModelMeta):
 
     def __repr__(self):
         return f"<{self.__class__.__name__} table={self._table!r}>"
+
 
