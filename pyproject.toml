@@ -26,7 +26,14 @@ dependencies = [
 [project.optional-dependencies]
 cli = ["typer>=0.9", "rich>=13.0"]
 ui  = ["streamlit>=1.30"]
-dev = ["pytest>=7", "pytest-cov", "ruff", "hatchling"]
+dev = [
+  "pytest>=7",
+  "pytest-cov",
+  "ruff",
+  "hatchling",
+  "mysql-connector-python>=8.0",
+  "psycopg2-binary>=2.9",
+]
 
 [project.scripts]
 mydborm = "mydborm.cli:cli"
@@ -45,3 +52,4 @@ select = ["E", "F", "I"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts   = "-v --cov=mydborm --cov-report=term-missing"
+filterwarnings = ["ignore::DeprecationWarning"]
