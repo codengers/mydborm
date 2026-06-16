@@ -235,6 +235,113 @@ class QueryBuilder:
         return f"<QueryBuilder sql={sql!r} params={params!r}>"
 
 # ------------------------------------------------------------------ #
+#  ModelInstance — row data + relationship methods                     #
+# ------------------------------------------------------------------ #
+
+class ModelInstance:
+    """
+    Wraps a row dict and gives it relationship methods.
+    Returned by BaseModel.get(), first(), and filter() rows.
+
+    Behaves like a dict:
+        user["name"]       ← works
+        user.get("name")   ← works
+        dict(user)         ← works
+    Also supports attribute access:
+        user.name          ← works
+    """
+
+    def __init__(self, model_class, data: dict):
+        object.__setattr__(self, "_model_class", model_class)
+        object.__setattr__(self, "_data", data)
+
+    # ── Dict-like access ─────────────────────────────────────────── #
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __setitem__(self, key, value):
+        self._data[key] = value
+
+    def __contains__(self, key):
+        return key in self._data
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def keys(self):
+        return self._data.keys()
+
+    def values(self):
+        return self._data.values()
+
+    def items(self):
+        return self._data.items()
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
+    # ── Attribute access ─────────────────────────────────────────── #
+
+    def __getattr__(self, key):
+        data = object.__getattribute__(self, "_data")
+        if key in data:
+            return data[key]
+        raise AttributeError(
+            f"'{self._model_class.__name__}' has no attribute '{key}'"
+        )
+
+    def __setattr__(self, key, value):
+        self._data[key] = value
+
+    # ── Relationships (delegated to model class) ──────────────────── #
+
+    def has_many(self, related_model, foreign_key: str = None) -> list:
+        fk  = foreign_key or f"{self._model_class.__name__.lower()}_id"
+        pk  = self._get_pk_value()
+        return related_model.query().where(fk, pk).all()
+
+    def belongs_to(self, related_model, foreign_key: str = None):
+        fk     = foreign_key or f"{related_model.__name__.lower()}_id"
+        fk_val = self._data.get(fk)
+        if fk_val is None:
+            return None
+        return related_model.get(id=fk_val)
+
+    def many_to_many(
+        self,
+        related_model,
+        join_table: str,
+        source_key: str = None,
+        target_key: str = None,
+    ) -> list:
+        src_key = source_key or f"{self._model_class.__name__.lower()}_id"
+        tgt_key = target_key or f"{related_model.__name__.lower()}_id"
+        pk      = self._get_pk_value()
+        tbl     = related_model._table
+        sql = (
+            f"SELECT {tbl}.* FROM {tbl} "
+            f"INNER JOIN {join_table} "
+            f"ON {tbl}.id = {join_table}.{tgt_key} "
+            f"WHERE {join_table}.{src_key} = %s;"
+        )
+        return related_model._fetch(sql, [pk])
+
+    def _get_pk_value(self):
+        for fname, field in self._model_class._fields.items():
+            if field.primary_key:
+                return self._data.get(fname)
+        raise ValueError(
+            f"No primary key on {self._model_class.__name__}."
+        )
+
+    def __repr__(self):
+        return (
+            f"<{self._model_class.__name__} "
+            f"{self._data}>"
+        )
+
+# ------------------------------------------------------------------ #
 #  Metaclass — introspects fields at class definition time            #
 # ------------------------------------------------------------------ #
 
@@ -368,12 +475,15 @@ class BaseModel(metaclass=ModelMeta):
 
     @classmethod
     def _fetch(cls, sql: str, params: list = None) -> list:
-        """Internal: run a SELECT and return list of dicts."""
+        """Internal: run a SELECT and return list of ModelInstance."""
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql, params or [])
             columns = [desc[0] for desc in cur.description]
-            return [dict(zip(columns, row)) for row in cur.fetchall()]
+            return [
+                ModelInstance(cls, dict(zip(columns, row)))
+                for row in cur.fetchall()
+            ]
 
     @classmethod
     def all(cls) -> list:
@@ -484,6 +594,91 @@ class BaseModel(metaclass=ModelMeta):
             User.query().where("active", True).order_by("name").all()
         """
         return QueryBuilder(cls)
+
+    # ------------------------------------------------------------------ #
+    #  Relationships                                                     #
+    # ------------------------------------------------------------------ #
+
+    def has_many(self, related_model, foreign_key: str = None) -> list:
+        """
+        Return all related records where foreign_key = self.pk.
+
+        Usage:
+            author = Author.get(id=1)
+            books  = author.has_many(Book, foreign_key="author_id")
+
+        If foreign_key is omitted, defaults to:
+            <this_classname_lower>_id   e.g. "author_id"
+        """
+        fk  = foreign_key or f"{self.__class__.__name__.lower()}_id"
+        pk  = self._get_pk_value()
+        return related_model.query().where(fk, pk).all()
+
+    def belongs_to(self, related_model, foreign_key: str = None) -> dict | None:
+        """
+        Return the parent record this instance belongs to.
+
+        Usage:
+            book   = Book.get(id=1)
+            author = book.belongs_to(Author, foreign_key="author_id")
+
+        If foreign_key is omitted, defaults to:
+            <related_classname_lower>_id   e.g. "author_id"
+        """
+        fk      = foreign_key or f"{related_model.__name__.lower()}_id"
+        fk_val  = self._data.get(fk)
+        if fk_val is None:
+            return None
+        return related_model.get(id=fk_val)
+
+    def many_to_many(
+        self,
+        related_model,
+        join_table: str,
+        source_key: str = None,
+        target_key: str = None,
+    ) -> list:
+        """
+        Return all related records via a join table.
+
+        Usage:
+            student = Student.get(id=1)
+            courses = student.many_to_many(
+                Course,
+                join_table="student_courses",
+                source_key="student_id",
+                target_key="course_id"
+            )
+
+        If source_key / target_key are omitted they default to:
+            <this_classname_lower>_id   and
+            <related_classname_lower>_id
+        """
+        src_key  = source_key or f"{self.__class__.__name__.lower()}_id"
+        tgt_key  = target_key or f"{related_model.__name__.lower()}_id"
+        pk       = self._get_pk_value()
+        tbl      = related_model._table
+
+        sql = (
+            f"SELECT {tbl}.* FROM {tbl} "
+            f"INNER JOIN {join_table} "
+            f"ON {tbl}.id = {join_table}.{tgt_key} "
+            f"WHERE {join_table}.{src_key} = %s;"
+        )
+        return related_model._fetch(sql, [pk])
+
+    # ------------------------------------------------------------------ #
+    #  Instance helpers                                                    #
+    # ------------------------------------------------------------------ #
+
+    def _get_pk_value(self):
+        """Return the primary key value for this instance."""
+        for fname, field in self._fields.items():
+            if field.primary_key:
+                return self._data.get(fname)
+        raise ValueError(
+            f"No primary key defined on {self.__class__.__name__}."
+        )
 
     def __repr__(self):
         return f"<{self.__class__.__name__} table={self._table!r}>"
