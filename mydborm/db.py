@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # File        : db.py
 # Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
@@ -13,7 +13,7 @@
 
 # =============================================================================
 # File        : db.py
-# Project     : mydborm � Lightweight ORM for MySQL and YugabyteDB
+# Project     : mydborm � Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
 # Created     : 2026-06-15
 # Version     : 0.2.0
@@ -194,6 +194,152 @@ class ConnectionManager:
             finally:
                 _local.conn = None
 
+    # ------------------------------------------------------------------ #
+    #  Raw SQL                                                           #
+    # ------------------------------------------------------------------ #
+
+    def fetchall(self, sql: str, params: list = None) -> list:
+        """
+        Execute a raw SELECT and return list of dicts.
+
+        Usage:
+            rows = db.fetchall(
+                "SELECT * FROM users WHERE active = %s", [True]
+            )
+        """
+        if not self._config:
+            raise RuntimeError(
+                "Database not configured.\n"
+                "Call db.configure(...) or db.from_env() first."
+            )
+        with self.connect() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params or [])
+            columns = [desc[0] for desc in cur.description]
+            return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+    def fetchone(self, sql: str, params: list = None) -> dict:
+        """
+        Execute a raw SELECT and return a single row dict or None.
+
+        Usage:
+            row = db.fetchone(
+                "SELECT * FROM users WHERE email = %s",
+                ["alice@example.com"]
+            )
+        """
+        rows = self.fetchall(sql, params)
+        return rows[0] if rows else None
+
+    def table_exists(self, table: str) -> bool:
+        """
+        Check if a table exists in the current database.
+
+        Usage:
+            if db.table_exists("users"):
+                print("Table exists")
+        """
+        dialect = self.dialect
+        if dialect == "mysql":
+            rows = self.fetchall(
+                "SELECT COUNT(*) as cnt FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() "
+                "AND table_name = %s;",
+                [table]
+            )
+        else:
+            rows = self.fetchall(
+                "SELECT COUNT(*) as cnt FROM information_schema.tables "
+                "WHERE table_schema = 'public' "
+                "AND table_name = %s;",
+                [table]
+            )
+        return rows[0]["cnt"] > 0
+
+    def list_tables(self) -> list:
+        """
+        Return list of all table names in the current database.
+
+        Usage:
+            tables = db.list_tables()
+            print(tables)  # ['users', 'products', ...]
+        """
+        dialect = self.dialect
+        if dialect == "mysql":
+            rows = self.fetchall("SHOW TABLES;")
+        else:
+            rows = self.fetchall(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' ORDER BY table_name;"
+            )
+        return [list(row.values())[0] for row in rows]
+
+    # ------------------------------------------------------------------ #
+    #  Transactions                                                        #
+    # ------------------------------------------------------------------ #
+
+    @contextmanager
+    def transaction(self):
+        """
+        Explicit transaction context manager.
+        All statements inside the block are committed together.
+        Any exception triggers a full rollback.
+
+        Usage:
+            with db.transaction() as conn:
+                db.execute("INSERT INTO users ...")
+                db.execute("INSERT INTO profiles ...")
+            # both committed or both rolled back
+        """
+        if not self._config:
+            raise RuntimeError(
+                "Database not configured.\n"
+                "Call db.configure(...) or db.from_env() first."
+            )
+
+        if not getattr(_local, "conn", None):
+            _local.conn = self._make_connection()
+
+        conn = _local.conn
+
+        # Disable auto-commit for explicit transaction
+        if self.dialect == "mysql":
+            conn.autocommit = False
+        else:
+            conn.autocommit = False
+
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            if self.dialect != "mysql":
+                conn.autocommit = True
+
+
+    def execute(self, sql: str, params: list = None) -> int:
+        """
+        Execute a raw SQL statement (INSERT, UPDATE, DELETE, DDL).
+        Returns number of affected rows.
+
+        Usage:
+            db.execute("UPDATE users SET active = %s WHERE id = %s", [False, 1])
+        """
+        if not self._config:
+            raise RuntimeError(
+                "Database not configured.\n"
+                "Call db.configure(...) or db.from_env() first."
+            )
+        if getattr(_local, "conn", None):
+            cur = _local.conn.cursor()
+            cur.execute(sql, params or [])
+            return cur.rowcount
+        with self.connect() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params or [])
+            return cur.rowcount
     def __repr__(self):
         if not self._config:
             return "<ConnectionManager: not configured>"
@@ -206,4 +352,5 @@ class ConnectionManager:
 
 # Global singleton — import and use anywhere
 db = ConnectionManager()
+
 
