@@ -420,9 +420,10 @@ class BaseModel(metaclass=ModelMeta):
         for fname, field in cls._fields.items():
             col_defs.append(f"  {fname} {field.to_sql_def()}")
 
+        col_separator = ",\n"
         sql = (
             f"CREATE TABLE {exist_clause} {cls._table} "
-            f"(\n{',\n'.join(col_defs)}\n);"
+            f"(\n{col_separator.join(col_defs)}\n);"
         )
         with db.connect() as conn:
             cur = conn.cursor()
