@@ -683,6 +683,123 @@ class BaseModel(metaclass=ModelMeta):
             f"No primary key defined on {self.__class__.__name__}."
         )
 
+    # ------------------------------------------------------------------ #
+    #  Bulk operations                                                   #
+    # ------------------------------------------------------------------ #
+
+    @classmethod
+    def bulk_create(cls, records: list) -> int:
+        """
+        Insert multiple rows in a single query.
+        Returns number of inserted rows.
+
+        Usage:
+            User.bulk_create([
+                {"username": "alice", "email": "alice@example.com"},
+                {"username": "bob",   "email": "bob@example.com"},
+            ])
+        """
+        if not records:
+            return 0
+
+        # Validate all records and collect columns from first record
+        first = {
+            k: v for k, v in records[0].items()
+            if k in cls._fields and not cls._fields[k].primary_key
+        }
+        columns = list(first.keys())
+
+        # Validate each record
+        validated_rows = []
+        for record in records:
+            row = {}
+            for col in columns:
+                field = cls._fields.get(col)
+                if field:
+                    row[col] = field.validate(record.get(col, field.default))
+                else:
+                    row[col] = record.get(col)
+            validated_rows.append(row)
+
+        col_str      = ", ".join(columns)
+        placeholders = "(" + ", ".join(["%s"] * len(columns)) + ")"
+        all_placeholders = ", ".join([placeholders] * len(validated_rows))
+        sql = (
+            "INSERT INTO " + cls._table +
+            " (" + col_str + ") VALUES " + all_placeholders + ";"
+        )
+
+        # Flatten all values into a single list
+        flat_values = []
+        for row in validated_rows:
+            flat_values.extend(row.values())
+
+        with db.connect() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, flat_values)
+            return cur.rowcount
+
+    @classmethod
+    def bulk_update(cls, records: list, key: str = "id") -> int:
+        """
+        Update multiple rows. Each record must contain the key field.
+        Returns total number of affected rows.
+
+        Usage:
+            User.bulk_update([
+                {"id": 1, "active": False},
+                {"id": 2, "active": False},
+            ])
+        """
+        if not records:
+            return 0
+
+        total = 0
+        with db.connect() as conn:
+            cur = conn.cursor()
+            for record in records:
+                key_val = record.get(key)
+                if key_val is None:
+                    raise ValueError(
+                        "bulk_update: every record must include "
+                        "the key field '" + key + "'."
+                    )
+                data = {k: v for k, v in record.items() if k != key}
+                if not data:
+                    continue
+                set_clause = ", ".join(k + " = %s" for k in data.keys())
+                sql = (
+                    "UPDATE " + cls._table +
+                    " SET " + set_clause +
+                    " WHERE " + key + " = %s;"
+                )
+                cur.execute(sql, list(data.values()) + [key_val])
+                total += cur.rowcount
+        return total
+
+    @classmethod
+    def bulk_delete(cls, ids: list, key: str = "id") -> int:
+        """
+        Delete multiple rows by a list of key values.
+        Returns number of deleted rows.
+
+        Usage:
+            User.bulk_delete([1, 2, 3])
+            User.bulk_delete(["alice", "bob"], key="username")
+        """
+        if not ids:
+            return 0
+
+        placeholders = ", ".join(["%s"] * len(ids))
+        sql = (
+            "DELETE FROM " + cls._table +
+            " WHERE " + key + " IN (" + placeholders + ");"
+        )
+        with db.connect() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, ids)
+            return cur.rowcount
+
     def __repr__(self):
         return f"<{self.__class__.__name__} table={self._table!r}>"
 
