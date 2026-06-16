@@ -1,4 +1,4 @@
-s# =============================================================================
+# =============================================================================
 # File        : __init__.py
 # Project     : mydborm � Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
