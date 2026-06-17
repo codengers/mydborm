@@ -416,17 +416,24 @@ class BaseModel(metaclass=ModelMeta):
     @classmethod
     def create_table(cls, if_not_exists: bool = True) -> None:
         """Create the database table for this model."""
-        exist_clause = "IF NOT EXISTS" if if_not_exists else ""
+        exist_clause = "IF NOT EXISTS " if if_not_exists else ""
         col_defs = []
 
+        dialect = db.dialect
         for fname, field in cls._fields.items():
-            col_defs.append(f"  {fname} {field.to_sql_def()}")
+            col_defs.append("  " + fname + " " + field.to_sql_def(dialect))
 
         col_separator = ",\n"
-        sql = (
-            f"CREATE TABLE {exist_clause} {cls._table} "
-            f"(\n{col_separator.join(col_defs)}\n);"
-        )
+        if db.dialect in ("yugabyte", "postgres"):
+            sql = (
+                'CREATE TABLE ' + exist_clause + '"' + cls._table + '"' +
+                " (\n" + col_separator.join(col_defs) + "\n);"
+            )
+        else:
+            sql = (
+                "CREATE TABLE " + exist_clause + cls._table +
+                " (\n" + col_separator.join(col_defs) + "\n);"
+            )
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql)
@@ -436,7 +443,10 @@ class BaseModel(metaclass=ModelMeta):
     def drop_table(cls, if_exists: bool = True) -> None:
         """Drop the database table for this model."""
         exist_clause = "IF EXISTS" if if_exists else ""
-        sql = f"DROP TABLE {exist_clause} {cls._table};"
+        if db.dialect in ("yugabyte", "postgres"):
+            sql = 'DROP TABLE ' + exist_clause + ' "' + cls._table + '";'
+        else:
+            sql = "DROP TABLE " + exist_clause + " " + cls._table + ";"
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql)
@@ -469,8 +479,14 @@ class BaseModel(metaclass=ModelMeta):
         )
         with db.connect() as conn:
             cur = conn.cursor()
-            cur.execute(sql, list(validated.values()))
-            return cur.lastrowid
+            if db.dialect in ("yugabyte", "postgres"):
+                sql = sql.rstrip(";") + " RETURNING id;"
+                cur.execute(sql, list(validated.values()))
+                row = cur.fetchone()
+                return row[0] if row else None
+            else:
+                cur.execute(sql, list(validated.values()))
+                return cur.lastrowid
 
     # ------------------------------------------------------------------ #
     #  Read                                                                #
@@ -802,5 +818,6 @@ class BaseModel(metaclass=ModelMeta):
 
     def __repr__(self):
         return f"<{self.__class__.__name__} table={self._table!r}>"
+
 
 
