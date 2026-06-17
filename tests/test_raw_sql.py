@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # File        : tests/test_raw_sql.py
 # Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
