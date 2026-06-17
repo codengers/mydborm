@@ -418,6 +418,66 @@ def migrate(
             f"[yellow]⚠[/yellow]  {result['message']}\n"
         )
 
+# ------------------------------------------------------------------ #
+#  pool                                                                #
+# ------------------------------------------------------------------ #
+
+@cli.command()
+def pool(
+    dialect:  str = typer.Option("mysql",     "--dialect",  "-d"),
+    host:     str = typer.Option("127.0.0.1", "--host",     "-h"),
+    port:     int = typer.Option(3306,        "--port",     "-p"),
+    user:     str = typer.Option("root",      "--user",     "-u"),
+    password: str = typer.Option("",          "--password", "-w",
+                                 hide_input=True),
+    database: str = typer.Option("testdb",    "--database", "-n"),
+    size:     int = typer.Option(5,           "--size",     "-s",
+                                 help="Pool size"),
+    overflow: int = typer.Option(10,          "--overflow",
+                                 help="Max overflow connections"),
+):
+    """Show connection pool status and configuration."""
+    from mydborm.db import db
+
+    try:
+        db.configure(
+            dialect=dialect, host=host, port=port,
+            user=user, password=password, database=database
+        )
+        db.configure_pool(pool_size=size, max_overflow=overflow)
+
+        status = db.pool_status()
+        alive  = db.ping()
+
+        t = Table(
+            title="Connection Pool Status",
+            box=box.ROUNDED,
+            border_style="cyan",
+        )
+        t.add_column("Property", style="cyan")
+        t.add_column("Value",    style="white")
+
+        t.add_row("Dialect",      status["dialect"])
+        t.add_row("Host",         str(status["host"]))
+        t.add_row("Database",     str(status["database"]))
+        t.add_row("Pool size",    str(size))
+        t.add_row("Max overflow", str(overflow))
+        t.add_row(
+            "Status",
+            "[bold green]✔ Alive[/bold green]"
+            if alive else
+            "[bold red]✘ Unreachable[/bold red]"
+        )
+
+        console.print()
+        console.print(t)
+        console.print()
+
+        db.close()
+
+    except Exception as e:
+        console.print(f"\n[bold red]✘ Error:[/bold red] {e}\n")
+        raise typer.Exit(code=1)
 
 # ------------------------------------------------------------------ #
 #  Entry point                                                         #
