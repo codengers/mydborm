@@ -26,13 +26,17 @@ dependencies = [
 [project.optional-dependencies]
 cli = ["typer>=0.9", "rich>=13.0"]
 ui  = ["streamlit>=1.30"]
-dev = [
+async = ["aiomysql>=0.3", "aiopg>=1.4"]
+dev   = [
   "pytest>=7",
   "pytest-cov",
+  "pytest-asyncio>=0.23",
   "ruff",
   "hatchling",
   "mysql-connector-python>=8.0",
   "psycopg2-binary>=2.9",
+  "aiomysql>=0.3",
+  "aiopg>=1.4",
 ]
 
 [project.scripts]
@@ -53,3 +57,4 @@ select = ["E", "F", "I"]
 testpaths = ["tests"]
 addopts   = "-v --cov=mydborm --cov-report=term-missing"
 filterwarnings = ["ignore::DeprecationWarning"]
+asyncio_mode = "auto"
