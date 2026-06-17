@@ -340,6 +340,91 @@ class ConnectionManager:
             cur = conn.cursor()
             cur.execute(sql, params or [])
             return cur.rowcount
+
+    # ------------------------------------------------------------------ #
+    #  Connection pooling                                                #
+    # ------------------------------------------------------------------ #
+
+    def configure_pool(
+        self,
+        pool_size: int = 5,
+        max_overflow: int = 10,
+        pool_timeout: int = 30,
+        pool_recycle: int = 3600,
+    ):
+        """
+        Configure connection pool settings.
+
+        Args:
+            pool_size    : number of persistent connections (default 5)
+            max_overflow : extra connections allowed above pool_size
+            pool_timeout : seconds to wait for a connection (default 30)
+            pool_recycle : seconds before recycling a connection (default 3600)
+
+        Usage:
+            db.configure(dialect="mysql", ...)
+            db.configure_pool(pool_size=10, max_overflow=20)
+        """
+        self._pool_config = {
+            "pool_size":    pool_size,
+            "max_overflow": max_overflow,
+            "pool_timeout": pool_timeout,
+            "pool_recycle": pool_recycle,
+        }
+        # Reset existing connections so pool config takes effect
+        self.close()
+
+    def pool_status(self) -> dict:
+        """
+        Return current pool configuration and connection status.
+
+        Usage:
+            status = db.pool_status()
+            print(status)
+        """
+        conn = getattr(_local, "conn", None)
+        return {
+            "dialect":      self.dialect,
+            "host":         self._config.get("host"),
+            "database":     self._config.get("database"),
+            "pool_config":  getattr(self, "_pool_config", {}),
+            "connected":    conn is not None,
+            "connection_id": id(conn) if conn else None,
+        }
+
+    def ping(self) -> bool:
+        """
+        Ping the database to check connectivity.
+        Returns True if connected, False otherwise.
+
+        Usage:
+            if db.ping():
+                print("Database is reachable")
+        """
+        try:
+            with self.connect() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT 1")
+                cur.fetchone()
+            return True
+        except Exception:
+            return False
+
+    def reconnect(self):
+        """
+        Force close and reopen the connection.
+        Useful after database restarts or stale connections.
+
+        Usage:
+            db.reconnect()
+        """
+        self.close()
+        with self.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        print("[mydborm] Reconnected to " + repr(self._config.get("host")))
+
     def __repr__(self):
         if not self._config:
             return "<ConnectionManager: not configured>"
