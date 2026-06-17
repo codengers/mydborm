@@ -179,8 +179,8 @@ def test_table_exists_false():
     assert db.table_exists("nonexistent_table_xyz") is False
 
 
-def test_table_exists_migrations_table():
-    assert db.table_exists("_mydborm_migrations") is True
+def test_table_exists_orders_table():
+    assert db.table_exists("orders") is True
 
 
 # ------------------------------------------------------------------ #
