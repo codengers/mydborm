@@ -1,3 +1,4 @@
+﻿import os
 # =============================================================================
 # File        : tests/test_relationships.py
 # Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
@@ -52,7 +53,7 @@ class Course(BaseModel):
 def setup_db():
     db.configure(
         dialect="mysql", host="127.0.0.1",
-        port=3307, user="root", password="root", database="testdb"
+        port=3307, user="root", password=os.environ.get("DB_PASSWORD", "root"), database="testdb"
     )
 
     # Drop in reverse dependency order
@@ -318,3 +319,4 @@ def test_query_then_relationship():
 
     books = authors[0].has_many(Book, foreign_key="author_id")
     assert len(books) == 2
+

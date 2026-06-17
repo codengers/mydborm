@@ -74,6 +74,7 @@ jobs:
       - name: Run tests
         env:
           DATABASE_URL: mysql://root:root@127.0.0.1:3307/testdb
+          DB_PASSWORD: root
         run: |
           pytest tests/ -v --cov=mydborm --cov-report=term-missing
 

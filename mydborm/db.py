@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # File        : db.py
 # Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
@@ -13,7 +13,7 @@
 
 # =============================================================================
 # File        : db.py
-# Project     : mydborm � Lightweight ORM for MySQL and YugabyteDB
+# Project     : mydborm � Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
 # Created     : 2026-06-15
 # Version     : 0.2.0
@@ -194,6 +194,237 @@ class ConnectionManager:
             finally:
                 _local.conn = None
 
+    # ------------------------------------------------------------------ #
+    #  Raw SQL                                                           #
+    # ------------------------------------------------------------------ #
+
+    def fetchall(self, sql: str, params: list = None) -> list:
+        """
+        Execute a raw SELECT and return list of dicts.
+
+        Usage:
+            rows = db.fetchall(
+                "SELECT * FROM users WHERE active = %s", [True]
+            )
+        """
+        if not self._config:
+            raise RuntimeError(
+                "Database not configured.\n"
+                "Call db.configure(...) or db.from_env() first."
+            )
+        with self.connect() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params or [])
+            columns = [desc[0] for desc in cur.description]
+            return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+    def fetchone(self, sql: str, params: list = None) -> dict:
+        """
+        Execute a raw SELECT and return a single row dict or None.
+
+        Usage:
+            row = db.fetchone(
+                "SELECT * FROM users WHERE email = %s",
+                ["alice@example.com"]
+            )
+        """
+        rows = self.fetchall(sql, params)
+        return rows[0] if rows else None
+
+    def table_exists(self, table: str) -> bool:
+        """
+        Check if a table exists in the current database.
+
+        Usage:
+            if db.table_exists("users"):
+                print("Table exists")
+        """
+        dialect = self.dialect
+        if dialect == "mysql":
+            rows = self.fetchall(
+                "SELECT COUNT(*) as cnt FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() "
+                "AND table_name = %s;",
+                [table]
+            )
+        else:
+            rows = self.fetchall(
+                "SELECT COUNT(*) as cnt FROM information_schema.tables "
+                "WHERE table_schema = 'public' "
+                "AND table_name = %s;",
+                [table]
+            )
+        return rows[0]["cnt"] > 0
+
+    def list_tables(self) -> list:
+        """
+        Return list of all table names in the current database.
+
+        Usage:
+            tables = db.list_tables()
+            print(tables)  # ['users', 'products', ...]
+        """
+        dialect = self.dialect
+        if dialect == "mysql":
+            rows = self.fetchall("SHOW TABLES;")
+        else:
+            rows = self.fetchall(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' ORDER BY table_name;"
+            )
+        return [list(row.values())[0] for row in rows]
+
+    # ------------------------------------------------------------------ #
+    #  Transactions                                                        #
+    # ------------------------------------------------------------------ #
+
+    @contextmanager
+    def transaction(self):
+        """
+        Explicit transaction context manager.
+        All statements inside the block are committed together.
+        Any exception triggers a full rollback.
+
+        Usage:
+            with db.transaction() as conn:
+                db.execute("INSERT INTO users ...")
+                db.execute("INSERT INTO profiles ...")
+            # both committed or both rolled back
+        """
+        if not self._config:
+            raise RuntimeError(
+                "Database not configured.\n"
+                "Call db.configure(...) or db.from_env() first."
+            )
+
+        if not getattr(_local, "conn", None):
+            _local.conn = self._make_connection()
+
+        conn = _local.conn
+
+        # Disable auto-commit for explicit transaction
+        if self.dialect == "mysql":
+            conn.autocommit = False
+        else:
+            conn.autocommit = False
+
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            if self.dialect != "mysql":
+                conn.autocommit = True
+
+
+    def execute(self, sql: str, params: list = None) -> int:
+        """
+        Execute a raw SQL statement (INSERT, UPDATE, DELETE, DDL).
+        Returns number of affected rows.
+
+        Usage:
+            db.execute("UPDATE users SET active = %s WHERE id = %s", [False, 1])
+        """
+        if not self._config:
+            raise RuntimeError(
+                "Database not configured.\n"
+                "Call db.configure(...) or db.from_env() first."
+            )
+        if getattr(_local, "conn", None):
+            cur = _local.conn.cursor()
+            cur.execute(sql, params or [])
+            return cur.rowcount
+        with self.connect() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, params or [])
+            return cur.rowcount
+
+    # ------------------------------------------------------------------ #
+    #  Connection pooling                                                #
+    # ------------------------------------------------------------------ #
+
+    def configure_pool(
+        self,
+        pool_size: int = 5,
+        max_overflow: int = 10,
+        pool_timeout: int = 30,
+        pool_recycle: int = 3600,
+    ):
+        """
+        Configure connection pool settings.
+
+        Args:
+            pool_size    : number of persistent connections (default 5)
+            max_overflow : extra connections allowed above pool_size
+            pool_timeout : seconds to wait for a connection (default 30)
+            pool_recycle : seconds before recycling a connection (default 3600)
+
+        Usage:
+            db.configure(dialect="mysql", ...)
+            db.configure_pool(pool_size=10, max_overflow=20)
+        """
+        self._pool_config = {
+            "pool_size":    pool_size,
+            "max_overflow": max_overflow,
+            "pool_timeout": pool_timeout,
+            "pool_recycle": pool_recycle,
+        }
+        # Reset existing connections so pool config takes effect
+        self.close()
+
+    def pool_status(self) -> dict:
+        """
+        Return current pool configuration and connection status.
+
+        Usage:
+            status = db.pool_status()
+            print(status)
+        """
+        conn = getattr(_local, "conn", None)
+        return {
+            "dialect":      self.dialect,
+            "host":         self._config.get("host"),
+            "database":     self._config.get("database"),
+            "pool_config":  getattr(self, "_pool_config", {}),
+            "connected":    conn is not None,
+            "connection_id": id(conn) if conn else None,
+        }
+
+    def ping(self) -> bool:
+        """
+        Ping the database to check connectivity.
+        Returns True if connected, False otherwise.
+
+        Usage:
+            if db.ping():
+                print("Database is reachable")
+        """
+        try:
+            with self.connect() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT 1")
+                cur.fetchone()
+            return True
+        except Exception:
+            return False
+
+    def reconnect(self):
+        """
+        Force close and reopen the connection.
+        Useful after database restarts or stale connections.
+
+        Usage:
+            db.reconnect()
+        """
+        self.close()
+        with self.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        print("[mydborm] Reconnected to " + repr(self._config.get("host")))
+
     def __repr__(self):
         if not self._config:
             return "<ConnectionManager: not configured>"
@@ -206,4 +437,5 @@ class ConnectionManager:
 
 # Global singleton — import and use anywhere
 db = ConnectionManager()
+
 
