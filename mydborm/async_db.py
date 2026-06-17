@@ -66,7 +66,7 @@ class AsyncConnectionManager:
                     port     = cfg.get("port", 3307),
                     user     = cfg.get("user", "root"),
                     password = cfg.get("password", ""),
-                    db       = cfg.get("database", "testdb"),
+                    db       = cfg.get("database", ""),
                     minsize  = cfg.get("minsize", 1),
                     maxsize  = cfg.get("maxsize", 10),
                     autocommit = False,
@@ -86,9 +86,9 @@ class AsyncConnectionManager:
                 ).format(
                     host     = cfg.get("host", "127.0.0.1"),
                     port     = cfg.get("port", 5433),
-                    user     = cfg.get("user", "yugabyte"),
-                    password = cfg.get("password", "yugabyte"),
-                    database = cfg.get("database", "yugabyte"),
+                    user     = cfg.get("user", ""),
+                    password = cfg.get("password", ""),
+                    database = cfg.get("database", ""),
                 )
                 self._pool = await aiopg.create_pool(dsn)
             except ImportError:
