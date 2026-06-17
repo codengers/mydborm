@@ -30,7 +30,7 @@ from .fields import (
     ForeignKeyField,
 )
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __author__  = "Codengers"
 __license__ = "MIT"
 
