@@ -1,3 +1,4 @@
+﻿import os
 # =============================================================================
 # File        : tests/test_bulk.py
 # Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
@@ -33,7 +34,7 @@ class Tag(BaseModel):
 def setup_db():
     db.configure(
         dialect="mysql", host="127.0.0.1",
-        port=3307, user="root", password="root", database="testdb"
+        port=3307, user="root", password=os.environ.get("DB_PASSWORD", "root"), database="testdb"
     )
     Tag.create_table()
     yield
@@ -214,3 +215,4 @@ def test_bulk_delete_custom_key():
 def test_bulk_delete_nonexistent_ids():
     deleted = Tag.bulk_delete([99999, 88888])
     assert deleted == 0
+

@@ -1,4 +1,5 @@
-﻿# =============================================================================
+﻿import os
+# =============================================================================
 # File        : tests/test_raw_sql.py
 # Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
@@ -34,7 +35,7 @@ class Order(BaseModel):
 def setup_db():
     db.configure(
         dialect="mysql", host="127.0.0.1",
-        port=3307, user="root", password="root", database="testdb"
+        port=3307, user="root", password=os.environ.get("DB_PASSWORD", "root"), database="testdb"
     )
     Order.create_table()
     yield
@@ -249,3 +250,5 @@ def test_transaction_multiple_operations():
         "SELECT * FROM orders WHERE item = %s", ["Multi1"]
     )
     assert row["qty"] == 99
+
+
