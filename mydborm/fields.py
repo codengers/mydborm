@@ -14,7 +14,7 @@
 
 # =============================================================================
 # File        : fields.py
-# Project     : mydborm � Lightweight ORM for MySQL and YugabyteDB
+# Project     : mydborm � Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
 # Created     : 2026-06-15
 # Version     : 0.2.0
@@ -66,11 +66,14 @@ class Field:
             return self.default if value is None else value
         return value
 
-    def to_sql_def(self) -> str:
+    def to_sql_def(self, dialect: str = "mysql") -> str:
         """Return the SQL column definition string."""
         parts = [self.sql_type]
         if self.primary_key:
-            parts.append("PRIMARY KEY AUTO_INCREMENT")
+            if dialect in ("yugabyte", "postgres"):
+                parts = ["SERIAL PRIMARY KEY"]
+            else:
+                parts.append("PRIMARY KEY AUTO_INCREMENT")
         elif not self.nullable:
             parts.append("NOT NULL")
         if self.unique and not self.primary_key:
@@ -133,17 +136,16 @@ class StrField(Field):
                 )
         return value
 
-
 class TextField(Field):
     """Unlimited text — TEXT column."""
     sql_type = "TEXT"
 
-
 class BoolField(Field):
-    """Boolean — TINYINT(1) in MySQL, BOOLEAN in YSQL."""
+    """Boolean — TINYINT(1) in MySQL, BOOLEAN in PostgreSQL/Yugabyte."""
+
     sql_type = "TINYINT(1)"
 
-    def validate(self, value: Any) -> Any:
+    def validate(self, value):
         value = super().validate(value)
         if value is not None and not isinstance(value, bool):
             raise TypeError(
@@ -152,6 +154,26 @@ class BoolField(Field):
             )
         return value
 
+    def to_sql_def(self, dialect: str = "mysql") -> str:
+        if dialect in ("yugabyte", "postgres"):
+            sql = "BOOLEAN"
+        else:
+            sql = "TINYINT(1)"
+
+        if self.primary_key:
+            sql += " PRIMARY KEY"
+
+        if not self.nullable:
+            sql += " NOT NULL"
+
+        if self.default is not None:
+            if dialect in ("yugabyte", "postgres"):
+                default = "TRUE" if self.default else "FALSE"
+            else:
+                default = "1" if self.default else "0"
+            sql += f" DEFAULT {default}"
+
+        return sql
 
 class FloatField(Field):
     """Floating point — FLOAT column."""
@@ -166,13 +188,11 @@ class FloatField(Field):
             )
         return float(value) if value is not None else None
 
-
 class DecimalField(Field):
     """Fixed precision — DECIMAL(p, s)."""
     def __init__(self, precision: int = 10, scale: int = 2, **kwargs):
         super().__init__(**kwargs)
         self.sql_type = f"DECIMAL({precision},{scale})"
-
 
 class DateField(Field):
     """Date only — DATE column."""
@@ -187,7 +207,6 @@ class DateField(Field):
             )
         return value
 
-
 class DateTimeField(Field):
     """Date + time — DATETIME column."""
     sql_type = "DATETIME"
@@ -201,15 +220,21 @@ class DateTimeField(Field):
             )
         return value
 
-
 class JSONField(Field):
     """
     JSON column.
     MySQL  → JSON
-    YugabyteDB → JSONB (override in yugabyte dialect)
+    YugabyteDB → JSONB
     """
     sql_type = "JSON"
 
+    def to_sql_def(self, dialect: str = "mysql") -> str:
+        original = self.sql_type
+        if dialect in ("yugabyte", "postgres"):
+            self.sql_type = "JSONB"
+        result = super().to_sql_def(dialect)
+        self.sql_type = original
+        return result
 
 class ForeignKeyField(Field):
     """
