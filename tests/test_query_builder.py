@@ -1,3 +1,4 @@
+﻿import os
 # =============================================================================
 # File        : tests/test_query_builder.py
 # Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
@@ -34,7 +35,7 @@ class Item(BaseModel):
 def setup_db():
     db.configure(
         dialect="mysql", host="127.0.0.1",
-        port=3307, user="root", password="root", database="testdb"
+        port=3307, user="root", password=os.environ.get("DB_PASSWORD", "root"), database="testdb"
     )
     Item.create_table()
     yield
@@ -247,3 +248,4 @@ def test_repr():
     q = Item.query().where("active", True).limit(5)
     assert "QueryBuilder" in repr(q)
     assert "active" in repr(q)
+

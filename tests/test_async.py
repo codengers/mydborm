@@ -1,4 +1,5 @@
-﻿# =============================================================================
+﻿import os
+# =============================================================================
 # File        : tests/test_async.py
 # Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
@@ -36,7 +37,7 @@ class AsyncProduct(AsyncBaseModel):
 async def setup_async_db():
     await async_db.configure(
         dialect="mysql", host="127.0.0.1",
-        port=3307, user="root", password="root", database="testdb"
+        port=3307, user="root", password=os.environ.get("DB_PASSWORD", "root"), database="testdb"
     )
     await AsyncProduct.create_table()
     await async_db.execute("DELETE FROM async_products")

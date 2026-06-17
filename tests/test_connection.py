@@ -1,11 +1,12 @@
+ï»¿import os
 # =============================================================================
 # File        : tests/test_connection.py
-# Project     : mydborm — Lightweight ORM for MySQL and YugabyteDB
+# Project     : mydborm ï¿½ Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
 # Created     : 2026-06-15
 # Version     : 0.2.0
 # License     : MIT
-# Description : pytest tests for ConnectionManager — covers configure,
+# Description : pytest tests for ConnectionManager ï¿½ covers configure,
 #               connect, dialect validation, and error handling.
 # =============================================================================
 """
@@ -18,7 +19,7 @@ from mydborm.db import db
 def test_configure_mysql():
     db.configure(
         dialect="mysql", host="127.0.0.1",
-        port=3307, user="root", password="root", database="testdb"
+        port=3307, user="root", password=os.environ.get("DB_PASSWORD", "root"), database="testdb"
     )
     assert db.dialect == "mysql"
 
@@ -26,7 +27,7 @@ def test_configure_mysql():
 def test_mysql_connect():
     db.configure(
         dialect="mysql", host="127.0.0.1",
-        port=3307, user="root", password="root", database="testdb"
+        port=3307, user="root", password=os.environ.get("DB_PASSWORD", "root"), database="testdb"
     )
     with db.connect() as conn:
         cur = conn.cursor()
@@ -45,3 +46,5 @@ def test_not_configured_raises():
     with pytest.raises(RuntimeError, match="not configured"):
         with db.connect() as conn:
             pass
+
+

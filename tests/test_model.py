@@ -1,3 +1,4 @@
+﻿import os
 # =============================================================================
 # File        : tests/test_model.py
 # Project     : mydborm � Lightweight ORM for MySQL and YugabyteDB
@@ -36,7 +37,7 @@ class Product(BaseModel):
 def setup_db():
     db.configure(
         dialect="mysql", host="127.0.0.1",
-        port=3307, user="root", password="root", database="testdb"
+        port=3307, user="root", password=os.environ.get("DB_PASSWORD", "root"), database="testdb"
     )
     Product.create_table()
     yield
@@ -107,3 +108,5 @@ def test_exists():
 
 def test_get_returns_none_when_missing():
     assert Product.get(id=9999) is None
+
+
