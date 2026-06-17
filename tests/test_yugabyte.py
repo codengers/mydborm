@@ -14,7 +14,21 @@ import os
 import pytest
 from mydborm import db, BaseModel, IntField, StrField, BoolField, FloatField
 from mydborm.fields import JSONField
+import socket
 
+def is_yugabyte_available():
+    """Check if YugabyteDB is reachable."""
+    try:
+        s = socket.create_connection(("127.0.0.1", 5433), timeout=2)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+pytestmark = pytest.mark.skipif(
+    not is_yugabyte_available(),
+    reason="YugabyteDB not available on port 5433 — skipping"
+)
 
 # ------------------------------------------------------------------ #
 #  YugabyteDB models                                                   #
