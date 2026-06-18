@@ -20,6 +20,94 @@ from typing import Optional
 from .fields import Field
 from .db import db
 
+# ------------------------------------------------------------------ #
+#  LazyRelation descriptor                                             #
+# ------------------------------------------------------------------ #
+
+class LazyRelation:
+    """
+    Descriptor that loads related objects on first access.
+    Cached on the instance after first load.
+
+    Usage on model class:
+        class Author(BaseModel):
+            __tablename__ = "authors"
+            id   = IntField(primary_key=True)
+            name = StrField(max_length=100)
+            books = LazyRelation("Book", foreign_key="author_id")
+
+        author = Author.get(id=1)
+        books  = author.books   # loaded on first access
+        books  = author.books   # cached, no second query
+    """
+
+    def __init__(self, related_model_name: str,
+                 foreign_key: str = None,
+                 relation_type: str = "has_many"):
+        self.related_model_name = related_model_name
+        self.foreign_key        = foreign_key
+        self.relation_type      = relation_type
+        self.attr_name          = None
+
+    def __set_name__(self, owner, name):
+        self.attr_name = name
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+
+        # Check cache first
+        cache_key = f"_lazy_{self.attr_name}"
+        cached    = obj._data.get(cache_key)
+        if cached is not None:
+            return cached
+
+        # Resolve related model class
+        related_model = self._resolve_model(obj._model_class)
+
+        # Load based on relation type
+        if self.relation_type == "has_many":
+            fk   = self.foreign_key or \
+                   f"{obj._model_class.__name__.lower()}_id"
+            pk   = obj._get_pk_value()
+            rows = related_model.query().where(fk, pk).all()
+
+        elif self.relation_type == "belongs_to":
+            fk     = self.foreign_key or \
+                     f"{related_model.__name__.lower()}_id"
+            fk_val = obj._data.get(fk)
+            rows   = related_model.get(id=fk_val) if fk_val else None
+
+        else:
+            rows = []
+
+        # Cache on instance — bypass TrackingDict field check
+        dict.__setitem__(obj._data, cache_key, rows)
+        return rows
+
+    def _resolve_model(self, owner_class):
+        """
+        Resolve related model class by name.
+        Searches all BaseModel subclasses.
+        """
+        def find_subclass(cls, name):
+            for sub in cls.__subclasses__():
+                if sub.__name__ == name:
+                    return sub
+                found = find_subclass(sub, name)
+                if found:
+                    return found
+            return None
+
+        model = find_subclass(BaseModel, self.related_model_name)
+        if model is None:
+            raise ValueError(
+                "LazyRelation: could not find model "
+                + repr(self.related_model_name)
+                + ". Make sure it is defined before accessing "
+                + repr(self.attr_name) + "."
+            )
+        return model
 
 # ------------------------------------------------------------------ #
 #  QueryBuilder                                                        #
@@ -68,6 +156,7 @@ class QueryBuilder:
         self._limit     = None
         self._offset    = None
         self._joins     = []
+        self._includes  = []         
 
     # ── Filters ──────────────────────────────────────────────────── #
 
@@ -155,6 +244,25 @@ class QueryBuilder:
     def right_join(self, table: str, on: str) -> "QueryBuilder":
         """Shortcut for RIGHT JOIN."""
         return self.join(table, on, join_type="RIGHT")
+    
+    def include(self, *relation_names: str) -> "QueryBuilder":
+        """
+        Eager load related objects — prevents N+1 queries.
+        Loads all related records in a single batch query per relation.
+
+        Args:
+            relation_names : names of LazyRelation attributes to preload
+
+        Usage:
+            authors = Author.query().include("books").all()
+            for a in authors:
+                print(a.books)  # no extra queries
+
+            # Multiple relations
+            authors = Author.query().include("books", "profile").all()
+        """
+        self._includes.extend(relation_names)
+        return self
 
     # ── Ordering ─────────────────────────────────────────────────── #
 
@@ -217,7 +325,71 @@ class QueryBuilder:
     def all(self) -> list:
         """Execute and return all matching rows as list of dicts."""
         sql, params = self._build_sql()
-        return self._model._fetch(sql + ";", params)
+        rows        = self._model._fetch(sql + ";", params)
+
+        if not rows or not self._includes:
+            return rows
+
+        # Deduplicate rows by primary key before eager loading
+        pk_field = next(
+            (f for f, field in self._model._fields.items()
+             if field.primary_key), "id"
+        )
+        seen = {}
+        deduped = []
+        for row in rows:
+            pk_val = row._data.get(pk_field)
+            if pk_val not in seen:
+                seen[pk_val] = row
+                deduped.append(row)
+        rows = deduped
+
+        # Eager load each included relation
+        for relation_name in self._includes:
+            descriptor = None
+            for cls in type.mro(self._model):
+                if relation_name in cls.__dict__:
+                    descriptor = cls.__dict__[relation_name]
+                    break
+
+            if not isinstance(descriptor, LazyRelation):
+                continue
+
+            related_model = descriptor._resolve_model(self._model)
+            fk            = descriptor.foreign_key or \
+                            f"{self._model.__name__.lower()}_id"
+
+            # Collect all PKs from loaded rows
+            pk_values = [r._data.get(pk_field) for r in rows
+                         if r._data.get(pk_field)]
+
+            if not pk_values:
+                continue
+
+            # Single batch query for all related records
+            related_rows = related_model.query().where(
+                fk + "__in", pk_values
+            ).all()
+
+            # Group by FK value
+            grouped = {}
+            for rrow in related_rows:
+                fk_val = rrow._data.get(fk)
+                if fk_val not in grouped:
+                    grouped[fk_val] = []
+                grouped[fk_val].append(rrow)
+
+            # Attach to each parent row
+            cache_key = f"_lazy_{relation_name}"
+            for row in rows:
+                pk_val = row._data.get(pk_field)
+                dict.__setitem__(
+                    row._data,
+                    cache_key,
+                    grouped.get(pk_val, [])
+                )
+
+        return rows
 
     def first(self) -> Optional[dict]:
         """Return first matching row or None."""
@@ -335,11 +507,22 @@ class ModelInstance:
     # ── Attribute access ─────────────────────────────────────────── #
 
     def __getattr__(self, key):
-        data = object.__getattribute__(self, "_data")
+        data       = object.__getattribute__(self, "_data")
+        model_cls  = object.__getattribute__(self, "_model_class")
+
+        # Check for LazyRelation descriptor on model class first
+        for cls in type.mro(model_cls):
+            if key in cls.__dict__:
+                descriptor = cls.__dict__[key]
+                if hasattr(descriptor, "__get__"):
+                    return descriptor.__get__(self, type(self))
+
+        # Fall back to _data dict
         if key in data:
             return data[key]
+
         raise AttributeError(
-            f"'{self._model_class.__name__}' has no attribute '{key}'"
+            f"'{model_cls.__name__}' has no attribute '{key}'"
         )
 
     def __setattr__(self, key, value):
