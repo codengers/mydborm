@@ -378,6 +378,36 @@ class ModelInstance:
         )
         return related_model._fetch(sql, [pk])
 
+    def to_dict(self, exclude: list = None) -> dict:
+        """Convert ModelInstance to a plain Python dict."""
+        exclude = exclude or []
+        return {k: v for k, v in self._data.items() if k not in exclude}
+
+    def to_json(self, exclude: list = None, indent: int = None) -> str:
+        """Convert ModelInstance to a JSON string."""
+        import json
+        from datetime import date, datetime
+
+        def serializer(obj):
+            if isinstance(obj, (date, datetime)):
+                return obj.isoformat()
+            raise TypeError(
+                "Object of type " + type(obj).__name__ +
+                " is not JSON serializable"
+            )
+
+        return json.dumps(
+            self.to_dict(exclude=exclude),
+            default=serializer,
+            indent=indent,
+            ensure_ascii=False,
+        )
+
+    def to_json_dict(self, exclude: list = None) -> dict:
+        """Convert to a JSON-safe dict (dates as ISO strings)."""
+        import json
+        return json.loads(self.to_json(exclude=exclude))
+
     def _get_pk_value(self):
         for fname, field in self._model_class._fields.items():
             if field.primary_key:
@@ -652,6 +682,109 @@ class BaseModel(metaclass=ModelMeta):
     def exists(cls, **kwargs) -> bool:
         """Return True if any row matches kwargs."""
         return cls.count(**kwargs) > 0
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ModelInstance":
+        """
+        Create a ModelInstance from a plain dict WITHOUT saving to DB.
+
+        Usage:
+            user = User.from_dict({"id": 1, "username": "alice"})
+            print(user.username)
+        """
+        return ModelInstance(cls, dict(data))
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "ModelInstance":
+        """
+        Create a ModelInstance from a JSON string WITHOUT saving to DB.
+
+        Usage:
+            user = User.from_json('{"id": 1, "username": "alice"}')
+        """
+        import json
+        return cls.from_dict(json.loads(json_str))
+    
+    @classmethod
+    def validate_schema(cls, strict: bool = False) -> dict:
+        """
+        Compare model field definitions against the live DB schema.
+
+        Args:
+            strict : if True raises SchemaError on mismatch
+
+        Returns:
+            {
+                "table"         : "users",
+                "valid"         : True | False,
+                "missing_in_db" : ["phone"],
+                "extra_in_db"   : ["old_col"],
+                "matched"       : ["id", "username", ...]
+            }
+
+        Usage:
+            result = User.validate_schema()
+            User.validate_schema(strict=True)
+        """
+        from .exceptions import SchemaError
+        from .migrations import get_live_schema
+
+        live          = get_live_schema(cls._table)
+        model_cols    = set(cls._fields.keys())
+        live_cols     = set(live.keys())
+        missing_in_db = list(model_cols - live_cols)
+        extra_in_db   = list(live_cols  - model_cols)
+        matched       = list(model_cols & live_cols)
+        valid         = not missing_in_db and not extra_in_db
+
+        result = {
+            "table":          cls._table,
+            "valid":          valid,
+            "missing_in_db":  missing_in_db,
+            "extra_in_db":    extra_in_db,
+            "matched":        matched,
+        }
+
+        if strict and not valid:
+            raise SchemaError(
+                "Schema mismatch for table '" + cls._table + "'",
+                table           = cls._table,
+                missing_columns = missing_in_db,
+                extra_columns   = extra_in_db,
+            )
+
+        return result
+
+    @classmethod
+    def schema_info(cls) -> dict:
+        """
+        Return model schema information — fields, types, constraints.
+
+        Usage:
+            info = User.schema_info()
+            for field, details in info["fields"].items():
+                print(field, details)
+        """
+        fields_info = {}
+        for fname, field in cls._fields.items():
+            fields_info[fname] = {
+                "type":        field.__class__.__name__,
+                "sql_type":    field.sql_type,
+                "primary_key": field.primary_key,
+                "nullable":    field.nullable,
+                "unique":      field.unique,
+                "default":     field.default,
+            }
+
+        return {
+            "table":    cls._table,
+            "dialect":  db.dialect if db._config else "not configured",
+            "fields":   fields_info,
+            "pk_field": next(
+                (f for f, field in cls._fields.items()
+                 if field.primary_key), None
+            ),
+        }
 
     @classmethod
     def query(cls) -> "QueryBuilder":
