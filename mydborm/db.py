@@ -84,20 +84,40 @@ class ConnectionManager:
     """
 
     def __init__(self):
-        self._config: dict = {}
+        self._config:   dict = {}
+        self._encoding: str  = "utf-8"
 
     # ------------------------------------------------------------------ #
     #  Configuration                                                        #
     # ------------------------------------------------------------------ #
 
     def configure(self, **kwargs):
-        """Set connection config directly as keyword arguments."""
+        """
+        Set connection config directly as keyword arguments.
+
+        Args:
+            dialect   : "mysql" or "yugabyte"
+            host      : database host
+            port      : database port
+            user      : database user
+            password  : database password
+            database  : database name
+            charset   : character set (default utf8mb4 for MySQL)
+            encoding  : python encoding for text handling (default utf-8)
+
+        Usage:
+            db.configure(dialect="mysql", host="localhost",
+                         user="root", password="root",
+                         database="mydb", charset="utf8mb4")
+        """
         if "dialect" not in kwargs:
             raise ValueError(
                 "dialect is required. "
                 f"Choose from: {SUPPORTED_DIALECTS}"
             )
-        self._config = kwargs
+        # Store Python encoding separately — not passed to driver
+        self._encoding = kwargs.pop("encoding", "utf-8")
+        self._config   = kwargs
 
     def from_env(self, var: str = "DATABASE_URL"):
         """
@@ -122,6 +142,11 @@ class ConnectionManager:
     def dialect(self) -> str:
         return self._config.get("dialect", "mysql")
 
+    @property
+    def encoding(self) -> str:
+        """Python encoding for text handling (default utf-8)."""
+        return getattr(self, "_encoding", "utf-8")
+
     def _make_connection(self):
         """Create a raw DB connection based on dialect."""
         cfg = {k: v for k, v in self._config.items() if k != "dialect"}
@@ -129,6 +154,9 @@ class ConnectionManager:
         if self.dialect == "mysql":
             try:
                 import mysql.connector
+                cfg.setdefault("charset", "utf8mb4")
+                cfg.setdefault("collation", "utf8mb4_unicode_ci")
+                cfg.setdefault("use_unicode", True)
                 return mysql.connector.connect(**cfg)
             except ImportError:
                 raise ImportError(
@@ -140,7 +168,10 @@ class ConnectionManager:
             try:
                 import psycopg2
                 cfg.setdefault("port", 5433)
-                return psycopg2.connect(**cfg)
+                cfg.setdefault("client_encoding", "utf8")
+                conn = psycopg2.connect(**cfg)
+                conn.set_client_encoding("UTF8")
+                return conn
             except ImportError:
                 raise ImportError(
                     "psycopg2 is not installed.\n"
@@ -424,6 +455,154 @@ class ConnectionManager:
             cur.execute("SELECT 1")
             cur.fetchone()
         print("[mydborm] Reconnected to " + repr(self._config.get("host")))
+
+# ------------------------------------------------------------------ #
+    #  Savepoints                                                          #
+    # ------------------------------------------------------------------ #
+
+    @contextmanager
+    def savepoint(self, name: str = None):
+        """
+        Create a savepoint within an active transaction.
+        Allows partial rollback without rolling back the entire transaction.
+
+        Args:
+            name : savepoint name (auto-generated if not provided)
+
+        Usage:
+            with db.transaction():
+                User.create(username="alice")
+                with db.savepoint("after_alice"):
+                    User.create(username="bob")
+                    raise Exception("bob failed")
+                # only bob is rolled back, alice is kept
+        """
+        import uuid
+        sp_name = name or f"sp_{uuid.uuid4().hex[:8]}"
+
+        if not getattr(_local, "conn", None):
+            raise RuntimeError(
+                "savepoint() must be used inside a transaction()."
+            )
+
+        conn = _local.conn
+        try:
+            cur = conn.cursor()
+            cur.execute(f"SAVEPOINT {sp_name}")
+            yield sp_name
+            cur.execute(f"RELEASE SAVEPOINT {sp_name}")
+        except Exception:
+            cur = conn.cursor()
+            cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
+            raise
+
+    # ------------------------------------------------------------------ #
+    #  Nested transactions                                                 #
+    # ------------------------------------------------------------------ #
+
+    @contextmanager
+    def nested_transaction(self):
+        """
+        Create a nested transaction using savepoints.
+        If already inside a transaction, uses a savepoint.
+        If not, starts a new transaction.
+
+        Usage:
+            with db.transaction():
+                User.create(username="alice")
+                with db.nested_transaction():
+                    User.create(username="bob")
+                    # if this fails, only bob rolls back
+        """
+        if getattr(_local, "conn", None):
+            # Already in a transaction — use savepoint
+            with self.savepoint():
+                yield
+        else:
+            # Not in a transaction — start one
+            with self.transaction():
+                yield
+
+    # ------------------------------------------------------------------ #
+    #  Bulk transaction                                                    #
+    # ------------------------------------------------------------------ #
+
+    @contextmanager
+    def bulk_transaction(self):
+        """
+        Atomic transaction across multiple model operations.
+        ALL operations commit together or ALL roll back together.
+
+        Usage:
+            with db.bulk_transaction() as tx:
+                tx.execute("INSERT INTO users ...")
+                tx.execute("INSERT INTO profiles ...")
+                tx.execute("INSERT INTO orders ...")
+            # all committed atomically
+
+        The tx object is the connection — use db.execute() inside.
+        """
+        if not getattr(_local, "conn", None):
+            _local.conn = self._make_connection()
+
+        conn = _local.conn
+        if self.dialect == "mysql":
+            conn.autocommit = False
+
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            if self.dialect == "mysql":
+                conn.autocommit = False
+
+    # ------------------------------------------------------------------ #
+    #  Transaction with retry                                              #
+    # ------------------------------------------------------------------ #
+
+    @contextmanager
+    def transaction_with_retry(self, retries: int = 3,
+                                retry_delay: float = 0.5):
+        """
+        Transaction that retries on deadlock with exponential backoff.
+        Non-deadlock exceptions are raised immediately without retry.
+        """
+        import time
+
+        last_error  = None
+        max_attempts = retries + 1
+
+        for attempt in range(max_attempts):
+            self.close()  # fresh connection each attempt
+            try:
+                with self.transaction() as conn:
+                    yield conn
+                return  # committed successfully
+
+            except GeneratorExit:
+                return
+
+            except Exception as e:
+                last_error  = e
+                err_str     = str(e).lower()
+                is_deadlock = (
+                    "deadlock"          in err_str or
+                    "lock wait timeout" in err_str or
+                    "1213"              in err_str or
+                    "1205"              in err_str
+                )
+                if is_deadlock and attempt < retries:
+                    time.sleep(retry_delay * (2 ** attempt))
+                    continue
+                raise
+        raise RetryExhaustedError(
+            f"Transaction failed after {retries + 1} attempts",
+            attempts   = retries + 1,
+            last_error = last_error,
+        )
 
     def __repr__(self):
         if not self._config:
