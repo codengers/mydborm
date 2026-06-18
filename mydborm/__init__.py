@@ -57,7 +57,7 @@ from .exceptions import (
 )
 from .bulk import BulkResult, chunked_bulk_create, chunked_bulk_update, chunked_bulk_delete
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __author__  = "Codengers"
 __license__ = "MIT"
 
