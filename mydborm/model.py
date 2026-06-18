@@ -67,6 +67,7 @@ class QueryBuilder:
         self._order_dir = "ASC"
         self._limit     = None
         self._offset    = None
+        self._joins     = []
 
     # ── Filters ──────────────────────────────────────────────────── #
 
@@ -114,6 +115,47 @@ class QueryBuilder:
 
         return self
 
+    # ── Joins ────────────────────────────────────────────────────── #
+
+    def join(self, table: str, on: str,
+             join_type: str = "INNER") -> "QueryBuilder":
+        """
+        Add a JOIN clause.
+
+        Args:
+            table     : table name to join
+            on        : join condition e.g. "users.id = orders.user_id"
+            join_type : INNER, LEFT, RIGHT (default INNER)
+
+        Usage:
+            User.query()
+                .join("orders", "users.id = orders.user_id")
+                .where("orders.shipped", True)
+                .all()
+        """
+        join_type = join_type.upper()
+        if join_type not in ("INNER", "LEFT", "RIGHT", "FULL"):
+            raise ValueError(
+                "join_type must be INNER, LEFT, RIGHT or FULL. "
+                "Got: " + repr(join_type)
+            )
+        self._joins.append(
+            join_type + " JOIN " + table + " ON " + on
+        )
+        return self
+
+    def inner_join(self, table: str, on: str) -> "QueryBuilder":
+        """Shortcut for INNER JOIN."""
+        return self.join(table, on, join_type="INNER")
+
+    def left_join(self, table: str, on: str) -> "QueryBuilder":
+        """Shortcut for LEFT JOIN."""
+        return self.join(table, on, join_type="LEFT")
+
+    def right_join(self, table: str, on: str) -> "QueryBuilder":
+        """Shortcut for RIGHT JOIN."""
+        return self.join(table, on, join_type="RIGHT")
+
     # ── Ordering ─────────────────────────────────────────────────── #
 
     def order_by(self, field: str, desc: bool = False) -> "QueryBuilder":
@@ -142,24 +184,31 @@ class QueryBuilder:
     def _build_sql(self, select: str = "*") -> tuple:
         """Build SQL string and flat params list."""
         table  = self._model._table
-        sql    = f"SELECT {select} FROM {table}"
+        sql    = "SELECT " + select + " FROM " + table
         params = []
 
+        # JOINs
+        for join_clause in self._joins:
+            sql += " " + join_clause
+
+        # WHERE
         if self._wheres:
             clauses = [w[0] for w in self._wheres]
             sql    += " WHERE " + " AND ".join(clauses)
             for _, vals in self._wheres:
                 params.extend(vals)
 
+        # ORDER BY
         if self._order:
-            sql += f" ORDER BY {self._order} {self._order_dir}"
+            sql += " ORDER BY " + self._order + " " + self._order_dir
 
+        # LIMIT / OFFSET
         if self._limit is not None and self._offset is not None:
-            sql += f" LIMIT {self._limit} OFFSET {self._offset}"
+            sql += " LIMIT " + str(self._limit) + " OFFSET " + str(self._offset)
         elif self._limit is not None:
-            sql += f" LIMIT {self._limit}"
+            sql += " LIMIT " + str(self._limit)
         elif self._offset is not None:
-            sql += f" LIMIT 18446744073709551615 OFFSET {self._offset}"
+            sql += " LIMIT 18446744073709551615 OFFSET " + str(self._offset)
 
         return sql, params
 
@@ -328,6 +377,36 @@ class ModelInstance:
             f"WHERE {join_table}.{src_key} = %s;"
         )
         return related_model._fetch(sql, [pk])
+
+    def to_dict(self, exclude: list = None) -> dict:
+        """Convert ModelInstance to a plain Python dict."""
+        exclude = exclude or []
+        return {k: v for k, v in self._data.items() if k not in exclude}
+
+    def to_json(self, exclude: list = None, indent: int = None) -> str:
+        """Convert ModelInstance to a JSON string."""
+        import json
+        from datetime import date, datetime
+
+        def serializer(obj):
+            if isinstance(obj, (date, datetime)):
+                return obj.isoformat()
+            raise TypeError(
+                "Object of type " + type(obj).__name__ +
+                " is not JSON serializable"
+            )
+
+        return json.dumps(
+            self.to_dict(exclude=exclude),
+            default=serializer,
+            indent=indent,
+            ensure_ascii=False,
+        )
+
+    def to_json_dict(self, exclude: list = None) -> dict:
+        """Convert to a JSON-safe dict (dates as ISO strings)."""
+        import json
+        return json.loads(self.to_json(exclude=exclude))
 
     def _get_pk_value(self):
         for fname, field in self._model_class._fields.items():
@@ -605,6 +684,109 @@ class BaseModel(metaclass=ModelMeta):
         return cls.count(**kwargs) > 0
 
     @classmethod
+    def from_dict(cls, data: dict) -> "ModelInstance":
+        """
+        Create a ModelInstance from a plain dict WITHOUT saving to DB.
+
+        Usage:
+            user = User.from_dict({"id": 1, "username": "alice"})
+            print(user.username)
+        """
+        return ModelInstance(cls, dict(data))
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "ModelInstance":
+        """
+        Create a ModelInstance from a JSON string WITHOUT saving to DB.
+
+        Usage:
+            user = User.from_json('{"id": 1, "username": "alice"}')
+        """
+        import json
+        return cls.from_dict(json.loads(json_str))
+    
+    @classmethod
+    def validate_schema(cls, strict: bool = False) -> dict:
+        """
+        Compare model field definitions against the live DB schema.
+
+        Args:
+            strict : if True raises SchemaError on mismatch
+
+        Returns:
+            {
+                "table"         : "users",
+                "valid"         : True | False,
+                "missing_in_db" : ["phone"],
+                "extra_in_db"   : ["old_col"],
+                "matched"       : ["id", "username", ...]
+            }
+
+        Usage:
+            result = User.validate_schema()
+            User.validate_schema(strict=True)
+        """
+        from .exceptions import SchemaError
+        from .migrations import get_live_schema
+
+        live          = get_live_schema(cls._table)
+        model_cols    = set(cls._fields.keys())
+        live_cols     = set(live.keys())
+        missing_in_db = list(model_cols - live_cols)
+        extra_in_db   = list(live_cols  - model_cols)
+        matched       = list(model_cols & live_cols)
+        valid         = not missing_in_db and not extra_in_db
+
+        result = {
+            "table":          cls._table,
+            "valid":          valid,
+            "missing_in_db":  missing_in_db,
+            "extra_in_db":    extra_in_db,
+            "matched":        matched,
+        }
+
+        if strict and not valid:
+            raise SchemaError(
+                "Schema mismatch for table '" + cls._table + "'",
+                table           = cls._table,
+                missing_columns = missing_in_db,
+                extra_columns   = extra_in_db,
+            )
+
+        return result
+
+    @classmethod
+    def schema_info(cls) -> dict:
+        """
+        Return model schema information — fields, types, constraints.
+
+        Usage:
+            info = User.schema_info()
+            for field, details in info["fields"].items():
+                print(field, details)
+        """
+        fields_info = {}
+        for fname, field in cls._fields.items():
+            fields_info[fname] = {
+                "type":        field.__class__.__name__,
+                "sql_type":    field.sql_type,
+                "primary_key": field.primary_key,
+                "nullable":    field.nullable,
+                "unique":      field.unique,
+                "default":     field.default,
+            }
+
+        return {
+            "table":    cls._table,
+            "dialect":  db.dialect if db._config else "not configured",
+            "fields":   fields_info,
+            "pk_field": next(
+                (f for f, field in cls._fields.items()
+                 if field.primary_key), None
+            ),
+        }
+
+    @classmethod
     def query(cls) -> "QueryBuilder":
         """
         Return a QueryBuilder for this model.
@@ -792,6 +974,132 @@ class BaseModel(metaclass=ModelMeta):
                 cur.execute(sql, list(data.values()) + [key_val])
                 total += cur.rowcount
         return total
+
+    @classmethod
+    def bulk_upsert(
+        cls,
+        records: list,
+        conflict_key: str = "id",
+        update_fields: list = None,
+        create_index: bool = True,
+    ) -> int:
+        """
+        Insert records or update on conflict — dialect aware.
+
+        MySQL      → INSERT ... ON DUPLICATE KEY UPDATE
+        YugabyteDB → INSERT ... ON CONFLICT DO UPDATE
+
+        Args:
+            records       : list of dicts to insert/update
+            conflict_key  : unique field that determines conflict
+            update_fields : fields to update on conflict
+            create_index  : auto-create UNIQUE index on conflict_key
+
+        Returns:
+            number of affected rows
+        """
+        if not records:
+            return 0
+
+        dialect = db.dialect
+
+        # Auto-create UNIQUE index on conflict_key if not primary key
+        field = cls._fields.get(conflict_key)
+        if create_index and field and not field.primary_key:
+            idx_name = "uq_" + cls._table + "_" + conflict_key
+            try:
+                with db.connect() as conn:
+                    cur = conn.cursor()
+                    if dialect == "mysql":
+                        cur.execute(
+                            "SELECT COUNT(*) FROM information_schema.statistics "
+                            "WHERE table_schema = DATABASE() "
+                            "AND table_name = %s "
+                            "AND index_name = %s",
+                            [cls._table, idx_name]
+                        )
+                        if cur.fetchone()[0] == 0:
+                            cur.execute(
+                                "ALTER TABLE `" + cls._table +
+                                "` ADD UNIQUE INDEX `" + idx_name +
+                                "` (`" + conflict_key + "`)"
+                            )
+                    else:
+                        cur.execute(
+                            "SELECT COUNT(*) FROM pg_indexes "
+                            "WHERE tablename = %s AND indexname = %s",
+                            [cls._table, idx_name]
+                        )
+                        if cur.fetchone()[0] == 0:
+                            cur.execute(
+                                'CREATE UNIQUE INDEX "' + idx_name +
+                                '" ON "' + cls._table +
+                                '" ("' + conflict_key + '")'
+                            )
+            except Exception:
+                pass  # index may already exist
+
+        # Collect columns
+        first   = {
+            k: v for k, v in records[0].items()
+            if k in cls._fields and not cls._fields[k].primary_key
+        }
+        columns = list(first.keys())
+
+        if update_fields is None:
+            update_fields = [c for c in columns if c != conflict_key]
+
+        if not update_fields:
+            return cls.bulk_create(records)
+
+        # Validate
+        validated_rows = []
+        for record in records:
+            row = {}
+            for col in columns:
+                field = cls._fields.get(col)
+                if field:
+                    row[col] = field.validate(
+                        record.get(col, field.default)
+                    )
+                else:
+                    row[col] = record.get(col)
+            validated_rows.append(row)
+
+        col_str      = ", ".join(columns)
+        placeholders = "(" + ", ".join(["%s"] * len(columns)) + ")"
+        all_ph       = ", ".join([placeholders] * len(validated_rows))
+
+        flat_values = []
+        for row in validated_rows:
+            flat_values.extend(row.values())
+
+        if dialect == "mysql":
+            update_clause = ", ".join(
+                "`" + f + "` = VALUES(`" + f + "`)"
+                for f in update_fields
+            )
+            sql = (
+                "INSERT INTO `" + cls._table + "` "
+                "(" + col_str + ") VALUES " + all_ph +
+                " ON DUPLICATE KEY UPDATE " + update_clause + ";"
+            )
+        else:
+            update_clause = ", ".join(
+                '"' + f + '" = EXCLUDED."' + f + '"'
+                for f in update_fields
+            )
+            sql = (
+                'INSERT INTO "' + cls._table + '" '
+                "(" + col_str + ") VALUES " + all_ph +
+                ' ON CONFLICT ("' + conflict_key + '") '
+                "DO UPDATE SET " + update_clause + ";"
+            )
+
+        with db.connect() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, flat_values)
+            return cur.rowcount
 
     @classmethod
     def bulk_delete(cls, ids: list, key: str = "id") -> int:
