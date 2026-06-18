@@ -65,7 +65,7 @@ from .exceptions import (
 from .bulk import BulkResult, chunked_bulk_create, chunked_bulk_update, chunked_bulk_delete
 from .session import Session, ObjectState
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 __author__  = "Codengers"
 __license__ = "MIT"
 
