@@ -55,6 +55,7 @@ from .exceptions import (
     SchemaError,
     UnsupportedDialectError,
 )
+from .bulk import BulkResult, chunked_bulk_create, chunked_bulk_update, chunked_bulk_delete
 
 __version__ = "0.4.0"
 __author__  = "Codengers"
@@ -99,5 +100,9 @@ __all__ = [
     "MigrationNotFoundError",
     "SchemaError",
     "UnsupportedDialectError",
+    "BulkResult",
+    "chunked_bulk_create",
+    "chunked_bulk_update",
+    "chunked_bulk_delete",
 ]
 
