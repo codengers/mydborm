@@ -50,20 +50,27 @@ class Field:
         default: Any = None,
         unique: bool = False,
         index: bool = False,
+        validators: list = None,
     ):
         self.primary_key = primary_key
         self.nullable    = nullable
         self.default     = default
         self.unique      = unique
         self.index       = index
+        self.validators  = validators or []
         self.name: Optional[str] = None   # set by ModelMeta
 
     def validate(self, value: Any) -> Any:
         """Validate and coerce value before insert/update."""
         if value is None:
-            if not self.nullable and self.default is None and not self.primary_key:
-                raise ValueError(f"Field '{self.name}' cannot be None.")
+            if not self.nullable and self.default is None \
+                    and not self.primary_key:
+                raise ValueError(
+                    f"Field '{self.name}' cannot be None."
+                )
             return self.default if value is None else value
+        # Run custom validators
+        _apply_validators(self, value)
         return value
 
     def to_sql_def(self, dialect: str = "mysql") -> str:
@@ -253,3 +260,130 @@ class ForeignKeyField(Field):
         base = super().to_sql_def()
         return f"{base}  -- FK -> {self.to}"
 
+# ------------------------------------------------------------------ #
+#  Built-in validators                                                 #
+# ------------------------------------------------------------------ #
+
+import re as _re
+
+
+class ValidationRule:
+    """
+    A reusable validation rule attached to a field.
+
+    Usage:
+        email   = StrField(validators=[EmailValidator()])
+        age     = IntField(validators=[RangeValidator(min_val=0, max_val=150)])
+        website = StrField(validators=[UrlValidator()])
+        code    = StrField(validators=[RegexValidator(r'^[A-Z]{3}$')])
+    """
+
+    def validate(self, value, field_name: str):
+        """Override in subclass. Raise ValueError on failure."""
+        raise NotImplementedError
+
+
+class EmailValidator(ValidationRule):
+    """Validates email address format."""
+    PATTERN = _re.compile(
+        r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$'
+    )
+
+    def validate(self, value, field_name: str):
+        if value is not None and not self.PATTERN.match(str(value)):
+            raise ValueError(
+                f"Field '{field_name}' must be a valid email address. "
+                f"Got: {value!r}"
+            )
+
+
+class UrlValidator(ValidationRule):
+    """Validates URL format (http/https)."""
+    PATTERN = _re.compile(
+        r'^https?://[^\s/$.?#].[^\s]*$'
+    )
+
+    def validate(self, value, field_name: str):
+        if value is not None and not self.PATTERN.match(str(value)):
+            raise ValueError(
+                f"Field '{field_name}' must be a valid URL. "
+                f"Got: {value!r}"
+            )
+
+
+class RegexValidator(ValidationRule):
+    """Validates value matches a regex pattern."""
+
+    def __init__(self, pattern: str, message: str = None):
+        self.pattern = _re.compile(pattern)
+        self.message = message
+
+    def validate(self, value, field_name: str):
+        if value is not None and not self.pattern.match(str(value)):
+            raise ValueError(
+                self.message or
+                f"Field '{field_name}' does not match "
+                f"pattern {self.pattern.pattern!r}. Got: {value!r}"
+            )
+
+
+class RangeValidator(ValidationRule):
+    """Validates numeric value is within a range."""
+
+    def __init__(self, min_val=None, max_val=None):
+        self.min_val = min_val
+        self.max_val = max_val
+
+    def validate(self, value, field_name: str):
+        if value is None:
+            return
+        if self.min_val is not None and value < self.min_val:
+            raise ValueError(
+                f"Field '{field_name}' must be >= {self.min_val}. "
+                f"Got: {value}"
+            )
+        if self.max_val is not None and value > self.max_val:
+            raise ValueError(
+                f"Field '{field_name}' must be <= {self.max_val}. "
+                f"Got: {value}"
+            )
+
+
+class MinLengthValidator(ValidationRule):
+    """Validates string has minimum length."""
+
+    def __init__(self, min_length: int):
+        self.min_length = min_length
+
+    def validate(self, value, field_name: str):
+        if value is not None and len(str(value)) < self.min_length:
+            raise ValueError(
+                f"Field '{field_name}' must be at least "
+                f"{self.min_length} characters. Got: {len(str(value))}"
+            )
+
+
+class ChoiceValidator(ValidationRule):
+    """Validates value is one of the allowed choices."""
+
+    def __init__(self, choices: list):
+        self.choices = choices
+
+    def validate(self, value, field_name: str):
+        if value is not None and value not in self.choices:
+            raise ValueError(
+                f"Field '{field_name}' must be one of "
+                f"{self.choices}. Got: {value!r}"
+            )
+
+
+# ------------------------------------------------------------------ #
+#  Field validators support                                            #
+# ------------------------------------------------------------------ #
+
+def _apply_validators(field, value):
+    """Run all ValidationRule instances attached to a field."""
+    validators = getattr(field, "validators", [])
+    for v in validators:
+        v.validate(value, field.name)
+    return value
