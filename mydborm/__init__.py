@@ -56,6 +56,7 @@ from .exceptions import (
     UnsupportedDialectError,
 )
 from .bulk import BulkResult, chunked_bulk_create, chunked_bulk_update, chunked_bulk_delete
+from .session import Session, ObjectState
 
 __version__ = "0.5.0"
 __author__  = "Codengers"
@@ -104,5 +105,7 @@ __all__ = [
     "chunked_bulk_create",
     "chunked_bulk_update",
     "chunked_bulk_delete",
+    "Session",
+    "ObjectState"
 ]
 
