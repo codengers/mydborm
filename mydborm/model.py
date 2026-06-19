@@ -1003,7 +1003,7 @@ class BaseModel(metaclass=ModelMeta):
         Compare model field definitions against the live DB schema.
 
         Args:
-            strict : if True raises SchemaError on mismatch
+            strict (bool): if True raises SchemaError on mismatch
 
         Returns:
             {
@@ -1278,14 +1278,14 @@ class BaseModel(metaclass=ModelMeta):
         """
         Insert records or update on conflict — dialect aware.
 
-        MySQL      → INSERT ... ON DUPLICATE KEY UPDATE
+        MySQL → INSERT ... ON DUPLICATE KEY UPDATE
         YugabyteDB → INSERT ... ON CONFLICT DO UPDATE
 
         Args:
-            records       : list of dicts to insert/update
-            conflict_key  : unique field that determines conflict
-            update_fields : fields to update on conflict
-            create_index  : auto-create UNIQUE index on conflict_key
+            records (list): list of dicts to insert/update
+            conflict_key (str): unique field that determines conflict
+            update_fields (list): fields to update on conflict
+            create_index (bool): auto-create UNIQUE index on conflict_keys
 
         Returns:
             number of affected rows

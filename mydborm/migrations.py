@@ -441,10 +441,10 @@ def generate(
     a numbered SQL file to output_dir.
 
     Args:
-        model_class : BaseModel subclass to generate migration for
-        output_dir  : directory to write migration files (default "migrations")
-        description : optional description for the migration
-        apply       : if True, also apply the migration immediately
+        model_class: BaseModel subclass to generate migration for
+        output_dir (str): directory to write migration files
+        description (str): optional description for the migration
+        apply (bool): if True, also apply the migration immediately
 
     Returns:
         {

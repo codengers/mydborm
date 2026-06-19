@@ -76,7 +76,7 @@ from .migrations import (
     list_migration_files,
 )
 
-__version__ = "0.8.0"
+__version__ = "1.0.0"
 __author__  = "Codengers"
 __license__ = "MIT"
 
