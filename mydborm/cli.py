@@ -480,6 +480,108 @@ def pool(
         raise typer.Exit(code=1)
 
 # ------------------------------------------------------------------ #
+#  generate                                                            #
+# ------------------------------------------------------------------ #
+
+@cli.command()
+def generate(
+    dialect:    str = typer.Option("mysql",        "--dialect",   "-d"),
+    host:       str = typer.Option("127.0.0.1",    "--host",      "-h"),
+    port:       int = typer.Option(3306,           "--port",      "-p"),
+    user:       str = typer.Option("root",         "--user",      "-u"),
+    password:   str = typer.Option("",             "--password",  "-w", hide_input=True),
+    database:   str = typer.Option("testdb",       "--database",  "-n"),
+    model:      str = typer.Option("",             "--model",     "-m",
+                                   help="Dotted model path e.g. myapp.models.User"),
+    output_dir: str = typer.Option("migrations",   "--output",    "-o",
+                                   help="Output directory for SQL files"),
+    apply:      bool = typer.Option(False,         "--apply",     "-a",
+                                    help="Apply migration after generating"),
+    list_files: bool = typer.Option(False,         "--list",      "-l",
+                                    help="List existing migration files"),
+):
+    """Generate versioned SQL migration files from model diff."""
+    from mydborm.db import db
+    from mydborm import migrations as mg
+
+    db.configure(
+        dialect=dialect, host=host, port=port,
+        user=user, password=password, database=database
+    )
+
+    if list_files:
+        files = mg.list_migration_files(output_dir)
+        if not files:
+            console.print(f"\n[dim]No migration files found in '{output_dir}'[/dim]\n")
+            return
+        t = Table(
+            title=f"Migration files in '{output_dir}'",
+            box=box.ROUNDED, border_style="cyan"
+        )
+        t.add_column("Version", style="cyan")
+        t.add_column("Name",    style="white")
+        t.add_column("File",    style="dim")
+        for f in files:
+            t.add_row(f["version"], f["name"], f["filename"])
+        console.print()
+        console.print(t)
+        console.print()
+        db.close()
+        return
+
+    if not model:
+        console.print("\n[bold yellow]Tip:[/bold yellow] "
+                      "Use [cyan]--model myapp.models.User[/cyan] to generate a migration.\n"
+                      "Use [cyan]--list[/cyan] to see existing migration files.\n")
+        db.close()
+        return
+
+    try:
+        import importlib
+        parts      = model.rsplit(".", 1)
+        if len(parts) != 2:
+            console.print(f"\n[bold red]Error:[/bold red] "
+                          f"Invalid model path: {model!r}. "
+                          f"Use dotted path e.g. myapp.models.User\n")
+            raise typer.Exit(code=1)
+
+        module_path, class_name = parts
+        module      = importlib.import_module(module_path)
+        model_class = getattr(module, class_name)
+
+        result = mg.generate(
+            model_class,
+            output_dir  = output_dir,
+            description = class_name.lower(),
+            apply       = apply,
+        )
+
+        if result["file"] is None:
+            console.print(
+                f"\n[bold green]✔[/bold green] {result['message']}\n"
+            )
+        else:
+            t = Table(
+                title="Migration generated",
+                box=box.ROUNDED, border_style="cyan"
+            )
+            t.add_column("Property", style="cyan")
+            t.add_column("Value",    style="white")
+            t.add_row("File",    result["file"])
+            t.add_row("Version", result["version"])
+            t.add_row("SQL",     str(len(result["sqls"])) + " statement(s)")
+            t.add_row("Applied", "[green]yes[/green]" if result["applied"] else "[dim]no[/dim]")
+            console.print()
+            console.print(t)
+            console.print()
+
+        db.close()
+
+    except Exception as e:
+        console.print(f"\n[bold red]Error:[/bold red] {e}\n")
+        raise typer.Exit(code=1)
+
+# ------------------------------------------------------------------ #
 #  Entry point                                                         #
 # ------------------------------------------------------------------ #
 
