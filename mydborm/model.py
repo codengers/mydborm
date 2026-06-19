@@ -726,12 +726,18 @@ class BaseModel(metaclass=ModelMeta):
         User.create(username="alice", email="alice@example.com")
         """
         # Validate all provided values
+        # Validate all provided values
         validated = {}
         for fname, field in cls._fields.items():
             if field.primary_key:
-                continue   # auto-increment, skip
+                continue
             value = kwargs.get(fname, field.default)
             validated[fname] = field.validate(value)
+
+        # Run model-level validators if defined
+        if hasattr(cls, "__validators__"):
+            for validator_fn in cls.__validators__:
+                validator_fn(validated)
 
         columns = ", ".join(validated.keys())
         placeholders = ", ".join(["%s"] * len(validated))
