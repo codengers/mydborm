@@ -1,0 +1,70 @@
+site_name: mydborm
+site_description: Lightweight ORM for MySQL and YugabyteDB
+site_author: Atikrant Upadhye
+site_url: https://codengers.github.io/mydborm
+repo_url: https://github.com/codengers/mydborm
+repo_name: codengers/mydborm
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: false
+            show_root_heading: true
+
+nav:
+  - Home: index.md
+  - Guide:
+    - Installation: guide/installation.md
+    - Quickstart: guide/quickstart.md
+    - Models: guide/models.md
+    - QueryBuilder: guide/query_builder.md
+    - Relationships: guide/relationships.md
+    - Transactions: guide/transactions.md
+    - Migrations: guide/migrations.md
+    - Session: guide/session.md
+    - Async: guide/async.md
+    - CLI: guide/cli.md
+  - API Reference:
+    - BaseModel: api/model.md
+    - Fields: api/fields.md
+    - ConnectionManager: api/db.md
+    - Session: api/session.md
+    - Exceptions: api/exceptions.md
+    - Migrations: api/migrations.md
+  - Benchmarks: benchmarks.md
+  - Changelog: changelog.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list

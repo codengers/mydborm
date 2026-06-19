@@ -1,0 +1,3 @@
+# ConnectionManager
+
+::: mydborm.db.ConnectionManager
