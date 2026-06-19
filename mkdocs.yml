@@ -42,14 +42,16 @@ nav:
   - Guide:
     - Installation: guide/installation.md
     - Quickstart: guide/quickstart.md
-    - Models: guide/models.md
-    - QueryBuilder: guide/query_builder.md
+    - Models & CRUD: guide/models.md
+    - Fields: guide/fields.md
+    - Query Builder: guide/query_builder.md
     - Relationships: guide/relationships.md
     - Transactions: guide/transactions.md
-    - Migrations: guide/migrations.md
     - Session: guide/session.md
+    - Migrations: guide/migrations.md
     - Async: guide/async.md
     - CLI: guide/cli.md
+    - Exceptions: guide/exceptions.md
   - API Reference:
     - BaseModel: api/model.md
     - Fields: api/fields.md
