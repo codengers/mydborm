@@ -95,20 +95,15 @@ class ConnectionManager:
         """
         Set connection config directly as keyword arguments.
 
-        Args:
-            dialect   : "mysql" or "yugabyte"
-            host      : database host
-            port      : database port
-            user      : database user
-            password  : database password
-            database  : database name
-            charset   : character set (default utf8mb4 for MySQL)
-            encoding  : python encoding for text handling (default utf-8)
-
-        Usage:
-            db.configure(dialect="mysql", host="localhost",
-                         user="root", password="root",
-                         database="mydb", charset="utf8mb4")
+        Keyword Args:
+            dialect (str): "mysql" or "yugabyte"
+            host (str): database host
+            port (int): database port
+            user (str): database user
+            password (str): database password
+            database (str): database name
+            charset (str): character set (default utf8mb4 for MySQL)
+            encoding (str): python encoding (default utf-8)
         """
         if "dialect" not in kwargs:
             raise ValueError(
@@ -387,10 +382,10 @@ class ConnectionManager:
         Configure connection pool settings.
 
         Args:
-            pool_size    : number of persistent connections (default 5)
-            max_overflow : extra connections allowed above pool_size
-            pool_timeout : seconds to wait for a connection (default 30)
-            pool_recycle : seconds before recycling a connection (default 3600)
+            pool_size: number of persistent connections (default 5)
+            max_overflow: extra connections allowed above pool_size
+            pool_timeout: seconds to wait for a connection (default 30)
+            pool_recycle: seconds before recycling a connection (default 3600)
 
         Usage:
             db.configure(dialect="mysql", ...)
@@ -467,7 +462,7 @@ class ConnectionManager:
         Allows partial rollback without rolling back the entire transaction.
 
         Args:
-            name : savepoint name (auto-generated if not provided)
+            name (str): savepoint name (auto-generated if not provided)
 
         Usage:
             with db.transaction():

@@ -35,6 +35,7 @@ plugins:
           options:
             show_source: false
             show_root_heading: true
+            docstring_style: google
 
 nav:
   - Home: index.md
