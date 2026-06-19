@@ -42,8 +42,9 @@ def test_version_shows_mydborm():
 
 
 def test_version_shows_version_number():
+    import mydborm
     out = runner.invoke(cli, ["version"]).output
-    assert "0.8.0" in out or "0.7.0" in out or "0.6.0" in out
+    assert mydborm.__version__ in out
 
 
 def test_version_shows_author():
