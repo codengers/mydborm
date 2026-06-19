@@ -150,13 +150,15 @@ class QueryBuilder:
 
     def __init__(self, model_class):
         self._model     = model_class
-        self._wheres    = []    # list of (clause, value)
+        self._wheres    = []
         self._order     = None
         self._order_dir = "ASC"
         self._limit     = None
         self._offset    = None
         self._joins     = []
-        self._includes  = []         
+        self._includes  = []
+        self._group_by  = []
+        self._having    = []        
 
     # ── Filters ──────────────────────────────────────────────────── #
 
@@ -184,14 +186,17 @@ class QueryBuilder:
                 break
 
         if op == "IN":
-            if not hasattr(value, "__iter__") or isinstance(value, str):
+            if isinstance(value, str) and value.startswith("(SELECT"):
+                self._wheres.append((f"{col} IN {value}", []))
+            elif not hasattr(value, "__iter__") or isinstance(value, str):
                 raise ValueError(
                     f".where('{field_op}', value): "
                     f"__in requires a list or tuple."
                 )
-            placeholders = ", ".join(["%s"] * len(value))
-            clause = f"{col} IN ({placeholders})"
-            self._wheres.append((clause, list(value)))
+            else:
+                placeholders = ", ".join(["%s"] * len(value))
+                clause = f"{col} IN ({placeholders})"
+                self._wheres.append((clause, list(value)))
 
         elif op == "IS":
             null_str = "NULL" if value else "NOT NULL"
@@ -264,6 +269,80 @@ class QueryBuilder:
         self._includes.extend(relation_names)
         return self
 
+    def group_by(self, *fields: str) -> "QueryBuilder":
+        """
+        Add GROUP BY clause.
+
+        Args:
+            fields : one or more field names to group by
+
+        Usage:
+            Order.query()
+                 .group_by("user_id")
+                 .count()
+
+            Order.query()
+                 .group_by("user_id", "status")
+                 .all()
+        """
+        self._group_by.extend(fields)
+        return self
+
+    def having(self, condition: str,
+               *params) -> "QueryBuilder":
+        """
+        Add HAVING clause — filter on aggregated values.
+        Must be used with group_by().
+
+        Args:
+            condition : SQL condition string e.g. "COUNT(*) > 5"
+            params    : optional parameter values for %s placeholders
+
+        Usage:
+            Order.query()
+                 .group_by("user_id")
+                 .having("COUNT(*) > 2")
+                 .all()
+
+            Order.query()
+                 .group_by("status")
+                 .having("SUM(total) > %s", 1000)
+                 .all()
+        """
+        self._having.append(condition)
+        if params:
+            self._wheres.append(("", list(params)))
+        return self
+
+    def subquery(self, field: str = "*") -> str:
+        """
+        Return this query as a subquery string.
+
+        Args:
+            field : field to select in subquery (default "*")
+
+        Usage:
+            active_ids = (User.query()
+                              .where("active", True)
+                              .subquery("id"))
+
+            Order.query()
+                 .where("user_id__in", active_ids)
+                 .all()
+        """
+        sql, params = self._build_sql(select=field)
+        # Inline params into SQL for subquery use
+        for param in params:
+            if isinstance(param, str):
+                sql = sql.replace("%s", f"'{param}'", 1)
+            elif isinstance(param, bool):
+                sql = sql.replace("%s", "1" if param else "0", 1)
+            elif param is None:
+                sql = sql.replace("%s", "NULL", 1)
+            else:
+                sql = sql.replace("%s", str(param), 1)
+        return "(" + sql.rstrip(";") + ")"
+
     # ── Ordering ─────────────────────────────────────────────────── #
 
     def order_by(self, field: str, desc: bool = False) -> "QueryBuilder":
@@ -292,6 +371,11 @@ class QueryBuilder:
     def _build_sql(self, select: str = "*") -> tuple:
         """Build SQL string and flat params list."""
         table  = self._model._table
+
+        # When GROUP BY is active, select grouped fields + aggregates
+        if self._group_by and select == "*":
+            select = ", ".join(self._group_by)
+
         sql    = "SELECT " + select + " FROM " + table
         params = []
 
@@ -300,11 +384,19 @@ class QueryBuilder:
             sql += " " + join_clause
 
         # WHERE
-        if self._wheres:
-            clauses = [w[0] for w in self._wheres]
-            sql    += " WHERE " + " AND ".join(clauses)
-            for _, vals in self._wheres:
-                params.extend(vals)
+        where_clauses = [w[0] for w in self._wheres if w[0]]
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+        for clause, vals in self._wheres:
+            params.extend(vals)
+
+        # GROUP BY
+        if self._group_by:
+            sql += " GROUP BY " + ", ".join(self._group_by)
+
+        # HAVING
+        if self._having:
+            sql += " HAVING " + " AND ".join(self._having)
 
         # ORDER BY
         if self._order:
@@ -401,10 +493,21 @@ class QueryBuilder:
         return rows[0] if rows else None
 
     def count(self) -> int:
-        """Return count of matching rows."""
-        sql, params = self._build_sql(select="COUNT(*)")
-        rows = self._model._fetch(sql + ";", params)
-        return list(rows[0].values())[0]
+        """Return count of matching rows or groups."""
+        if self._group_by:
+            # Count number of groups using subquery
+            inner_sql, params = self._build_sql(
+                select=", ".join(self._group_by)
+            )
+            sql  = "SELECT COUNT(*) FROM (" + inner_sql + ") AS _grp"
+            rows = self._model._fetch(sql + ";", params)
+        else:
+            sql, params = self._build_sql(select="COUNT(*)")
+            rows = self._model._fetch(sql + ";", params)
+        if rows:
+            val = list(rows[0]._data.values())[0]
+            return int(val)
+        return 0
 
     def exists(self) -> bool:
         """Return True if any row matches."""
