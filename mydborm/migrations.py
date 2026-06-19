@@ -420,4 +420,207 @@ def rollback(model_class) -> dict:
         "message": f"Rolled back '{table}' — table dropped.",
     }
 
+# ------------------------------------------------------------------ #
+#  Auto-migration file generation                                      #
+# ------------------------------------------------------------------ #
+
+import os as _os
+import datetime as _datetime
+
+
+def generate(
+    model_class,
+    output_dir: str = "migrations",
+    description: str = "",
+    apply: bool = False,
+) -> dict:
+    """
+    Generate a versioned SQL migration file from model diff.
+
+    Compares model definition against live DB schema and writes
+    a numbered SQL file to output_dir.
+
+    Args:
+        model_class : BaseModel subclass to generate migration for
+        output_dir  : directory to write migration files (default "migrations")
+        description : optional description for the migration
+        apply       : if True, also apply the migration immediately
+
+    Returns:
+        {
+            "file"       : path to generated file (or None if up to date),
+            "version"    : migration version string,
+            "sqls"       : list of SQL statements,
+            "applied"    : True if migration was applied,
+            "message"    : status message,
+        }
+
+    Usage:
+        from mydborm.migrations import generate
+
+        result = generate(User, output_dir="migrations/")
+        print(result["file"])
+        # migrations/0001_create_users.sql
+    """
+    sqls = generate_migration_sql(model_class)
+
+    if not sqls:
+        return {
+            "file"    : None,
+            "version" : "",
+            "sqls"    : [],
+            "applied" : False,
+            "message" : f"Table '{model_class._table}' is up to date — no migration needed.",
+        }
+
+    # Ensure output directory exists
+    _os.makedirs(output_dir, exist_ok=True)
+
+    # Determine next version number
+    existing = sorted([
+        f for f in _os.listdir(output_dir)
+        if f.endswith(".sql")
+    ])
+    next_num = len(existing) + 1
+    version  = f"{next_num:04d}"
+
+    # Build filename
+    table_name  = model_class._table
+    desc_slug   = description.lower().replace(" ", "_") if description else table_name
+    filename    = f"{version}_{desc_slug}.sql"
+    filepath    = _os.path.join(output_dir, filename)
+
+    # Build file content
+    timestamp = _datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    lines     = [
+        f"-- mydborm auto-generated migration",
+        f"-- version    : {version}",
+        f"-- table      : {table_name}",
+        f"-- generated  : {timestamp}",
+        f"-- description: {description or table_name}",
+        "",
+    ]
+    for sql in sqls:
+        lines.append(sql)
+        lines.append("")
+
+    content = "\n".join(lines)
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    print(f"[mydborm] Migration file created: {filepath}")
+
+    # Optionally apply
+    applied = False
+    if apply:
+        apply_result = apply_migration_file(filepath)
+        applied      = apply_result["applied"]
+
+    return {
+        "file"    : filepath,
+        "version" : version,
+        "sqls"    : sqls,
+        "applied" : applied,
+        "message" : f"Migration file created: {filepath}",
+    }
+
+
+def apply_migration_file(filepath: str) -> dict:
+    """
+    Apply a SQL migration file to the database.
+
+    Args:
+        filepath : path to .sql migration file
+
+    Returns:
+        {
+            "file"     : filepath,
+            "applied"  : True if successful,
+            "sqls"     : list of SQL statements applied,
+            "message"  : status message,
+        }
+
+    Usage:
+        result = apply_migration_file("migrations/0001_create_users.sql")
+    """
+    from .db import db
+
+    if not _os.path.exists(filepath):
+        return {
+            "file"    : filepath,
+            "applied" : False,
+            "sqls"    : [],
+            "message" : f"File not found: {filepath}",
+        }
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Extract SQL statements (skip comment lines)
+    # Extract SQL statements — join multi-line statements, skip comments
+    sqls     = []
+    current  = []
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("--"):
+            continue
+        current.append(line)
+        if line.endswith(";"):
+            sqls.append(" ".join(current))
+            current = []
+    if current:
+        sqls.append(" ".join(current))
+
+    applied_sqls = []
+    with db.connect() as conn:
+        cur = conn.cursor()
+        for sql in sqls:
+            if sql:
+                cur.execute(sql)
+                applied_sqls.append(sql)
+
+    print(f"[mydborm] Applied migration: {filepath}")
+
+    return {
+        "file"    : filepath,
+        "applied" : True,
+        "sqls"    : applied_sqls,
+        "message" : f"Applied {len(applied_sqls)} statement(s) from {filepath}",
+    }
+
+
+def list_migration_files(output_dir: str = "migrations") -> list:
+    """
+    List all migration files in the output directory.
+
+    Args:
+        output_dir : directory containing .sql files
+
+    Returns:
+        list of dicts with file, version, name
+
+    Usage:
+        files = list_migration_files("migrations/")
+        for f in files:
+            print(f["version"], f["name"])
+    """
+    if not _os.path.exists(output_dir):
+        return []
+
+    files = []
+    for fname in sorted(_os.listdir(output_dir)):
+        if fname.endswith(".sql"):
+            parts   = fname.split("_", 1)
+            version = parts[0] if len(parts) > 1 else ""
+            name    = parts[1].replace(".sql", "") if len(parts) > 1 else fname
+            files.append({
+                "file"    : _os.path.join(output_dir, fname),
+                "version" : version,
+                "name"    : name,
+                "filename": fname,
+            })
+
+    return files
+
 
