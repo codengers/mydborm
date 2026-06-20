@@ -956,3 +956,337 @@ class SetField(Field):
                     f"Allowed: {self.choices}"
                 )
         return value
+    
+# ================================================================== #
+#  Password and Encrypted fields — v1.2.0                             #
+# ================================================================== #
+
+
+# ------------------------------------------------------------------ #
+#  PasswordField — one-way hashing (bcrypt)                           #
+# ------------------------------------------------------------------ #
+
+class PasswordField(Field):
+    """
+    One-way password hashing using bcrypt.
+    Stores a bcrypt hash — CANNOT be decrypted.
+    Use .verify(plain, hashed) to check passwords.
+
+    MySQL:      VARCHAR(255)
+    YugabyteDB: VARCHAR(255)
+
+    Usage:
+        class User(BaseModel):
+            __tablename__ = "users"
+            id       = IntField(primary_key=True)
+            username = StrField(max_length=50, nullable=False)
+            password = PasswordField(nullable=False)
+
+        # Create user — password auto-hashed
+        uid = User.create(username="alice", password="mysecretpass")
+
+        # Verify password
+        user = User.get(id=uid)
+        ok   = PasswordField.verify("mysecretpass", user["password"])
+        print(ok)   # True
+
+        # Wrong password
+        ok = PasswordField.verify("wrongpass", user["password"])
+        print(ok)   # False
+    """
+    sql_type = "VARCHAR(255)"
+
+    def __init__(self, rounds: int = 12, **kwargs):
+        """
+        Args:
+            rounds: bcrypt work factor (4-31). Higher = slower = more secure.
+                    Default 12 is a good balance for production.
+        """
+        self.rounds = rounds
+        super().__init__(**kwargs)
+
+    def validate(self, value):
+        """Hash the password before storing."""
+        value = super().validate(value)
+        if value is None:
+            return None
+
+        # Already hashed — don't double-hash
+        if isinstance(value, str) and value.startswith("$2b$"):
+            return value
+        if isinstance(value, bytes) and value.startswith(b"$2b$"):
+            return value.decode("utf-8")
+
+        try:
+            import bcrypt
+        except ImportError:
+            raise ImportError(
+                "PasswordField requires bcrypt. "
+                "Install it: pip install bcrypt"
+            )
+
+        if isinstance(value, str):
+            value = value.encode("utf-8")
+        elif not isinstance(value, bytes):
+            raise TypeError(
+                f"Field '{self.name}' expects str or bytes password, "
+                f"got {type(value).__name__}."
+            )
+
+        hashed = bcrypt.hashpw(value, bcrypt.gensalt(rounds=self.rounds))
+        return hashed.decode("utf-8")
+
+    @staticmethod
+    def verify(plain_password: str, hashed_password: str) -> bool:
+        """
+        Verify a plain-text password against a stored bcrypt hash.
+
+        Args:
+            plain_password  : the password the user typed
+            hashed_password : the stored hash from the database
+
+        Returns:
+            True if password matches, False otherwise
+
+        Usage:
+            user = User.get(id=1)
+            if PasswordField.verify("mysecret", user["password"]):
+                print("Login successful!")
+            else:
+                print("Wrong password")
+        """
+        try:
+            import bcrypt
+        except ImportError:
+            raise ImportError(
+                "PasswordField requires bcrypt. "
+                "Install it: pip install bcrypt"
+            )
+
+        if isinstance(plain_password, str):
+            plain_password = plain_password.encode("utf-8")
+        if isinstance(hashed_password, str):
+            hashed_password = hashed_password.encode("utf-8")
+
+        try:
+            return bcrypt.checkpw(plain_password, hashed_password)
+        except Exception:
+            return False
+
+    @staticmethod
+    def hash(plain_password: str, rounds: int = 12) -> str:
+        """
+        Hash a password manually without storing.
+
+        Usage:
+            hashed = PasswordField.hash("mysecret")
+        """
+        try:
+            import bcrypt
+        except ImportError:
+            raise ImportError("pip install bcrypt")
+
+        if isinstance(plain_password, str):
+            plain_password = plain_password.encode("utf-8")
+        return bcrypt.hashpw(
+            plain_password,
+            bcrypt.gensalt(rounds=rounds)
+        ).decode("utf-8")
+
+    def needs_rehash(self, hashed_password: str) -> bool:
+        """
+        Check if a stored hash needs to be upgraded
+        (e.g. rounds changed).
+
+        Usage:
+            user = User.get(id=1)
+            if pwd_field.needs_rehash(user["password"]):
+                # Update with new hash on next login
+                User.update({"password": new_plain}, id=user["id"])
+        """
+        try:
+            import bcrypt
+        except ImportError:
+            raise ImportError("pip install bcrypt")
+
+        if isinstance(hashed_password, str):
+            hashed_password = hashed_password.encode("utf-8")
+        return bcrypt.checkpw(b"", hashed_password) or \
+               bcrypt.gensalt(rounds=self.rounds) != hashed_password[:29]
+
+
+# ------------------------------------------------------------------ #
+#  EncryptedField — two-way AES encryption (Fernet)                   #
+# ------------------------------------------------------------------ #
+
+class EncryptedField(Field):
+    """
+    Two-way AES encryption using Fernet (AES-128-CBC + HMAC-SHA256).
+    Stores encrypted ciphertext — can be decrypted with the same key.
+
+    Use for: API keys, tokens, SSNs, credit card numbers,
+             sensitive config, personal data requiring retrieval.
+
+    MySQL:      TEXT
+    YugabyteDB: TEXT
+
+    IMPORTANT: Store your encryption key securely!
+    Never hardcode it — use environment variables.
+
+    Usage:
+        import os
+        from mydborm.fields import EncryptedField
+
+        # Generate a key (do this once, store securely)
+        key = EncryptedField.generate_key()
+        print(key)  # store in environment variable
+
+        class APICredential(BaseModel):
+            __tablename__ = "api_credentials"
+            id          = IntField(primary_key=True)
+            service     = StrField(max_length=50, nullable=False)
+            api_key     = EncryptedField(
+                              secret_key=os.environ["ENCRYPTION_KEY"],
+                              nullable=False
+                          )
+            api_secret  = EncryptedField(
+                              secret_key=os.environ["ENCRYPTION_KEY"],
+                              nullable=True
+                          )
+
+        # Store — auto-encrypted
+        cid = APICredential.create(
+            service    = "stripe",
+            api_key    = "sk_live_abc123xyz",
+            api_secret = "whsec_secret456",
+        )
+
+        # Retrieve — still encrypted in DB
+        cred = APICredential.get(id=cid)
+        print(cred["api_key"])   # gAAAAAB... (ciphertext)
+
+        # Decrypt
+        plain = EncryptedField.decrypt(
+            cred["api_key"],
+            secret_key=os.environ["ENCRYPTION_KEY"]
+        )
+        print(plain)   # sk_live_abc123xyz
+    """
+    sql_type = "TEXT"
+
+    def __init__(self, secret_key: str = None, **kwargs):
+        """
+        Args:
+            secret_key: Fernet key (32 bytes, base64-encoded).
+                        Generate with EncryptedField.generate_key()
+                        Store in environment variable — never hardcode!
+        """
+        if secret_key is None:
+            import os
+            secret_key = os.environ.get("MYDBORM_ENCRYPTION_KEY")
+        if secret_key is None:
+            raise ValueError(
+                "EncryptedField requires a secret_key. "
+                "Pass it directly or set MYDBORM_ENCRYPTION_KEY env var. "
+                "Generate a key with: EncryptedField.generate_key()"
+            )
+        self._secret_key = secret_key
+        super().__init__(**kwargs)
+
+    def _get_fernet(self):
+        try:
+            from cryptography.fernet import Fernet
+        except ImportError:
+            raise ImportError(
+                "EncryptedField requires cryptography. "
+                "Install it: pip install cryptography"
+            )
+        key = self._secret_key
+        if isinstance(key, str):
+            key = key.encode("utf-8")
+        return Fernet(key)
+
+    def validate(self, value):
+        """Encrypt the value before storing."""
+        value = super().validate(value)
+        if value is None:
+            return None
+
+        # Already encrypted (starts with gAAAAA)
+        if isinstance(value, str) and value.startswith("gAAAAA"):
+            return value
+
+        fernet = self._get_fernet()
+        if isinstance(value, str):
+            value = value.encode("utf-8")
+        elif not isinstance(value, bytes):
+            value = str(value).encode("utf-8")
+
+        return fernet.encrypt(value).decode("utf-8")
+
+    def decrypt_value(self, encrypted_value: str) -> str:
+        """
+        Decrypt a stored encrypted value.
+
+        Usage:
+            field = APICredential._fields["api_key"]
+            plain = field.decrypt_value(cred["api_key"])
+        """
+        if encrypted_value is None:
+            return None
+        fernet = self._get_fernet()
+        if isinstance(encrypted_value, str):
+            encrypted_value = encrypted_value.encode("utf-8")
+        return fernet.decrypt(encrypted_value).decode("utf-8")
+
+    @staticmethod
+    def generate_key() -> str:
+        """
+        Generate a new Fernet encryption key.
+        Store this key securely — losing it means losing all encrypted data!
+
+        Usage:
+            key = EncryptedField.generate_key()
+            print(key)   # store in .env or secrets manager
+        """
+        try:
+            from cryptography.fernet import Fernet
+        except ImportError:
+            raise ImportError("pip install cryptography")
+        return Fernet.generate_key().decode("utf-8")
+
+    @staticmethod
+    def encrypt(plain_value: str, secret_key: str) -> str:
+        """
+        Encrypt a value with a given key.
+
+        Usage:
+            cipher = EncryptedField.encrypt("my-api-key", secret_key=key)
+        """
+        try:
+            from cryptography.fernet import Fernet
+        except ImportError:
+            raise ImportError("pip install cryptography")
+        if isinstance(secret_key, str):
+            secret_key = secret_key.encode("utf-8")
+        if isinstance(plain_value, str):
+            plain_value = plain_value.encode("utf-8")
+        return Fernet(secret_key).encrypt(plain_value).decode("utf-8")
+
+    @staticmethod
+    def decrypt(encrypted_value: str, secret_key: str) -> str:
+        """
+        Decrypt a stored value with a given key.
+
+        Usage:
+            plain = EncryptedField.decrypt(cred["api_key"], secret_key=key)
+        """
+        try:
+            from cryptography.fernet import Fernet
+        except ImportError:
+            raise ImportError("pip install cryptography")
+        if isinstance(secret_key, str):
+            secret_key = secret_key.encode("utf-8")
+        if isinstance(encrypted_value, str):
+            encrypted_value = encrypted_value.encode("utf-8")
+        return Fernet(secret_key).decrypt(encrypted_value).decode("utf-8")

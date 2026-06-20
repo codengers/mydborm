@@ -45,6 +45,10 @@ dev   = [
   "aiomysql>=0.3",
   "aiopg>=1.4",
 ]
+security = [
+    "bcrypt>=4.0",
+    "cryptography>=41.0",
+]
 
 [project.scripts]
 mydborm = "mydborm.cli:cli"
