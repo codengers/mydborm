@@ -97,7 +97,7 @@ from .migrations import (
     list_migration_files,
 )
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 __author__  = "Codengers"
 __license__ = "MIT"
 
