@@ -54,6 +54,8 @@ from .fields import (
     RangeValidator,
     MinLengthValidator,
     ChoiceValidator,
+    PasswordField,
+    EncryptedField,
 )
 from .exceptions import (
     MydbormError,
@@ -169,5 +171,7 @@ __all__ = [
     "TimestampField",
     "EnumField",
     "SetField",
+    "PasswordField",
+    "EncryptedField",
 ]
 
