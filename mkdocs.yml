@@ -49,6 +49,9 @@ nav:
     - Transactions: guide/transactions.md
     - Session: guide/session.md
     - Migrations: guide/migrations.md
+    - Bulk Operations: guide/bulk_ops.md
+    - Validators: guide/validators.md
+    - Security: guide/security.md
     - Async: guide/async.md
     - CLI: guide/cli.md
     - Exceptions: guide/exceptions.md
