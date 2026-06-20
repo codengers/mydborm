@@ -98,7 +98,7 @@ from .migrations import (
 )
 from .mixins import SoftDeleteMixin, AuditMixin, TimestampMixin
 
-__version__ = "1.2.1"
+__version__ = "1.3.0"
 __author__  = "Codengers"
 __license__ = "MIT"
 
