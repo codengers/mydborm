@@ -28,6 +28,25 @@ from .fields import (
     DateTimeField,
     JSONField,
     ForeignKeyField,
+    # Extended field types — v1.1.0
+    TinyIntField,
+    SmallIntField,
+    BigIntField,
+    UnsignedBigIntField,
+    DoubleField,
+    BitField,
+    CharField,
+    TinyTextField,
+    MediumTextField,
+    LongTextField,
+    BinaryField,
+    VarBinaryField,
+    BlobField,
+    TimeField,
+    TimestampField,
+    EnumField,
+    SetField,
+    # Validators
     ValidationRule,
     EmailValidator,
     UrlValidator,
@@ -76,7 +95,7 @@ from .migrations import (
     list_migration_files,
 )
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 __author__  = "Codengers"
 __license__ = "MIT"
 
@@ -132,5 +151,23 @@ __all__ = [
     "RangeValidator",
     "MinLengthValidator",
     "ChoiceValidator",
+    # Extended fields
+    "TinyIntField",
+    "SmallIntField",
+    "BigIntField",
+    "UnsignedBigIntField",
+    "DoubleField",
+    "BitField",
+    "CharField",
+    "TinyTextField",
+    "MediumTextField",
+    "LongTextField",
+    "BinaryField",
+    "VarBinaryField",
+    "BlobField",
+    "TimeField",
+    "TimestampField",
+    "EnumField",
+    "SetField",
 ]
 
