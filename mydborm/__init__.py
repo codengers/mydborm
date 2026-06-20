@@ -96,8 +96,9 @@ from .migrations import (
     apply_migration_file,
     list_migration_files,
 )
+from .mixins import SoftDeleteMixin, AuditMixin, TimestampMixin
 
-__version__ = "1.2.1"
+__version__ = "1.3.0"
 __author__  = "Codengers"
 __license__ = "MIT"
 
@@ -173,5 +174,8 @@ __all__ = [
     "SetField",
     "PasswordField",
     "EncryptedField",
+    "SoftDeleteMixin",
+    "AuditMixin",
+    "TimestampMixin",
 ]
 
