@@ -11,11 +11,15 @@
 
 import os
 import pytest
+
+# Skip entire module if security deps not installed
+pytest.importorskip("bcrypt",        reason="pip install bcrypt")
+pytest.importorskip("cryptography",  reason="pip install cryptography")
+
 from mydborm import (
     db, BaseModel, IntField, StrField,
     PasswordField, EncryptedField,
 )
-
 
 # ------------------------------------------------------------------ #
 #  Test key                                                            #
