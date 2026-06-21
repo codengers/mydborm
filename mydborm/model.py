@@ -802,6 +802,51 @@ class BaseModel(metaclass=ModelMeta):
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql)
+            # Create single-field indexes from field definitions
+            for fname, field in cls._fields.items():
+                if getattr(field, "index", False) and not field.primary_key \
+                        and not getattr(field, "unique", False):
+                    unique    = ""
+                    idx_name  = f"idx_{cls._table}_{fname}".replace("idx_idx_", "idx_")
+                    if db.dialect in ("yugabyte", "postgres"):
+                        idx_sql = (
+                            f'CREATE {unique}INDEX IF NOT EXISTS "{idx_name}" '
+                            f'ON "{cls._table}" ("{fname}")'
+                        )
+                    else:
+                        idx_sql = (
+                            f"CREATE {unique}INDEX `{idx_name}` "
+                            f"ON `{cls._table}` (`{fname}`)"
+                        )
+                    try:
+                        cur.execute(idx_sql)
+                    except Exception:
+                        pass  # index may already exist
+
+            # Create composite indexes from __indexes__
+            for idx in getattr(cls, "__indexes__", []):
+                fields    = idx.get("fields", [])
+                unique    = "UNIQUE " if idx.get("unique", False) else ""
+                idx_name  = idx.get("name") or f"idx_{cls._table}_{'_'.join(fields)}"
+                if not fields:
+                    continue
+                if db.dialect in ("yugabyte", "postgres"):
+                    cols    = ", ".join(f'"{f}"' for f in fields)
+                    idx_sql = (
+                        f'CREATE {unique}INDEX IF NOT EXISTS "{idx_name}" '
+                        f'ON "{cls._table}" ({cols})'
+                    )
+                else:
+                    cols    = ", ".join(f"`{f}`" for f in fields)
+                    idx_sql = (
+                        f"CREATE {unique}INDEX `{idx_name}` "
+                        f"ON `{cls._table}` ({cols})"
+                    )
+                try:
+                    cur.execute(idx_sql)
+                except Exception:
+                    pass
+
         print(f"[mydborm] Table '{cls._table}' ready.")
 
     @classmethod
@@ -816,6 +861,114 @@ class BaseModel(metaclass=ModelMeta):
             cur = conn.cursor()
             cur.execute(sql)
         print(f"[mydborm] Table '{cls._table}' dropped.")
+
+    @classmethod
+    def create_index(
+        cls,
+        fields: list,
+        name: str = None,
+        unique: bool = False,
+    ) -> str:
+        """
+        Create an index on one or more columns.
+
+        Args:
+            fields : list of field names to index
+            name   : optional index name (auto-generated if not provided)
+            unique : if True creates a UNIQUE index
+
+        Returns:
+            Index name created.
+
+        Usage:
+            Product.create_index(["category"])
+            Product.create_index(["category", "price"], name="idx_cat_price")
+            Product.create_index(["email"], unique=True)
+        """
+        if not fields:
+            raise ValueError("create_index requires at least one field.")
+        unique_kw = "UNIQUE " if unique else ""
+        idx_name  = name or f"idx_{cls._table}_{'_'.join(fields)}"
+        if db.dialect in ("yugabyte", "postgres"):
+            cols = ", ".join(f'"{f}"' for f in fields)
+            sql  = (
+                f'CREATE {unique_kw}INDEX IF NOT EXISTS "{idx_name}" '
+                f'ON "{cls._table}" ({cols})'
+            )
+        else:
+            cols = ", ".join(f"`{f}`" for f in fields)
+            sql  = (
+                f"CREATE {unique_kw}INDEX `{idx_name}` "
+                f"ON `{cls._table}` ({cols})"
+            )
+        with db.connect() as conn:
+            conn.cursor().execute(sql)
+        print(f"[mydborm] Index '{idx_name}' created on '{cls._table}'")
+        return idx_name
+
+    @classmethod
+    def drop_index(cls, name: str) -> None:
+        """
+        Drop an index by name.
+
+        Args:
+            name: index name to drop
+
+        Usage:
+            Product.drop_index("idx_products_category")
+        """
+        if db.dialect in ("yugabyte", "postgres"):
+            sql = f'DROP INDEX IF EXISTS "{name}"'
+        else:
+            sql = f"DROP INDEX `{name}` ON `{cls._table}`"
+        with db.connect() as conn:
+            conn.cursor().execute(sql)
+        print(f"[mydborm] Index '{name}' dropped")
+
+    @classmethod
+    def list_indexes(cls) -> list:
+        """
+        List all indexes on this model's table.
+
+        Returns:
+            List of dicts with index info.
+
+        Usage:
+            indexes = Product.list_indexes()
+            for idx in indexes:
+                print(idx["name"], idx["columns"], idx["unique"])
+        """
+        with db.connect() as conn:
+            cur = conn.cursor()
+            if db.dialect in ("yugabyte", "postgres"):
+                cur.execute("""
+                    SELECT indexname, indexdef
+                    FROM pg_indexes
+                    WHERE tablename = %s
+                """, [cls._table])
+                rows = cur.fetchall()
+                return [
+                    {"name": r[0], "definition": r[1],
+                     "unique": "UNIQUE" in (r[1] or "").upper()}
+                    for r in rows
+                ]
+            else:
+                cur.execute(f"SHOW INDEX FROM `{cls._table}`")
+                rows    = cur.fetchall()
+                indexes = {}
+                for row in rows:
+                    name   = row[2]
+                    col    = row[4]
+                    unique = row[1] == 0
+                    if name not in indexes:
+                        indexes[name] = {
+                            "name"    : name,
+                            "columns" : [],
+                            "unique"  : unique,
+                            "primary" : name == "PRIMARY",
+                        }
+                    indexes[name]["columns"].append(col)
+                return list(indexes.values())
 
     # ------------------------------------------------------------------ #
     #  Create                                                              #
