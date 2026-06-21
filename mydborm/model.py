@@ -695,6 +695,9 @@ class ModelInstance:
         return json.loads(self.to_json(exclude=exclude))
 
     def _get_pk_value(self):
+        comp_pk = getattr(self._model_class, "_composite_pk", None)
+        if comp_pk:
+            return {f: self._data.get(f) for f in comp_pk}
         for fname, field in self._model_class._fields.items():
             if field.primary_key:
                 return self._data.get(fname)
@@ -735,8 +738,10 @@ class ModelMeta(type):
         namespace["_fields"] = fields
         namespace["_table"]  = namespace.get(
             "__tablename__",
-            name.lower() + "s"   # default: ClassName → classnames
+            name.lower() + "s"
         )
+        # Composite PK support — __pk__ = ("col1", "col2")
+        namespace["_composite_pk"] = namespace.get("__pk__", None)
         return super().__new__(mcs, name, bases, namespace)
 
 
@@ -782,11 +787,31 @@ class BaseModel(metaclass=ModelMeta):
     def create_table(cls, if_not_exists: bool = True) -> None:
         """Create the database table for this model."""
         exist_clause = "IF NOT EXISTS " if if_not_exists else ""
-        col_defs = []
+        col_defs    = []
+        dialect     = db.dialect
+        has_comp_pk = bool(getattr(cls, "_composite_pk", None))
 
-        dialect = db.dialect
         for fname, field in cls._fields.items():
-            col_defs.append("  " + fname + " " + field.to_sql_def(dialect))
+            if has_comp_pk and field.primary_key:
+                # Skip inline PRIMARY KEY — will add as table constraint
+                sql_def = field.to_sql_def(dialect)
+                sql_def = (sql_def
+                           .replace(" PRIMARY KEY AUTO_INCREMENT", " NOT NULL AUTO_INCREMENT")
+                           .replace(" PRIMARY KEY", " NOT NULL")
+                           .replace(" SERIAL PRIMARY KEY", " SERIAL")
+                           .replace("SERIAL", "INTEGER NOT NULL"))
+                col_defs.append("  " + fname + " " + sql_def)
+            else:
+                col_defs.append("  " + fname + " " + field.to_sql_def(dialect))
+
+        # Add composite PK constraint
+        if has_comp_pk:
+            pk_cols = getattr(cls, "_composite_pk")
+            if dialect in ("yugabyte", "postgres"):
+                pk_clause = "PRIMARY KEY (" + ", ".join(f'"{c}"' for c in pk_cols) + ")"
+            else:
+                pk_clause = "PRIMARY KEY (" + ", ".join(f"`{c}`" for c in pk_cols) + ")"
+            col_defs.append("  " + pk_clause)
 
         col_separator = ",\n"
         if db.dialect in ("yugabyte", "postgres"):
@@ -982,10 +1007,19 @@ class BaseModel(metaclass=ModelMeta):
         User.create(username="alice", email="alice@example.com")
         """
         # Validate all provided values
-        # Validate all provided values
-        validated = {}
+        validated   = {}
+        comp_pk     = getattr(cls, "_composite_pk", None)
         for fname, field in cls._fields.items():
-            if field.primary_key:
+            if field.primary_key and not comp_pk:
+                continue   # skip auto-increment PK
+            if comp_pk and fname in comp_pk:
+                # composite PK fields are required — include them
+                value = kwargs.get(fname)
+                if value is None:
+                    raise ValueError(
+                        f"Composite PK field '{fname}' is required."
+                    )
+                validated[fname] = value
                 continue
             value = kwargs.get(fname, field.default)
             validated[fname] = field.validate(value)
@@ -1008,16 +1042,21 @@ class BaseModel(metaclass=ModelMeta):
             f"INSERT INTO {cls._table} ({columns}) "
             f"VALUES ({placeholders});"
         )
+        comp_pk = getattr(cls, "_composite_pk", None)
         with db.connect() as conn:
             cur = conn.cursor()
-            if db.dialect in ("yugabyte", "postgres"):
+            if db.dialect in ("yugabyte", "postgres") and not comp_pk:
                 sql = sql.rstrip(";") + " RETURNING id;"
                 cur.execute(sql, list(validated.values()))
-                row      = cur.fetchone()
-                new_id   = row[0] if row else None
+                row    = cur.fetchone()
+                new_id = row[0] if row else None
             else:
                 cur.execute(sql, list(validated.values()))
-                new_id = cur.lastrowid
+                if comp_pk:
+                    # Return dict of composite PK values
+                    new_id = {f: validated[f] for f in comp_pk if f in validated}
+                else:
+                    new_id = cur.lastrowid
 
         # ── Lifecycle hook: after_create ───────────────────────────────
         if hasattr(cls, "after_create") and callable(
@@ -1357,6 +1396,9 @@ class BaseModel(metaclass=ModelMeta):
 
     def _get_pk_value(self):
         """Return the primary key value for this instance."""
+        comp_pk = getattr(self.__class__, "_composite_pk", None)
+        if comp_pk:
+            return {f: self._data.get(f) for f in comp_pk}
         for fname, field in self._fields.items():
             if field.primary_key:
                 return self._data.get(fname)
