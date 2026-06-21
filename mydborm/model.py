@@ -842,7 +842,14 @@ class BaseModel(metaclass=ModelMeta):
             for validator_fn in cls.__validators__:
                 validator_fn(validated)
 
-        columns = ", ".join(validated.keys())
+        # ── Lifecycle hook: before_create ──────────────────────────────
+        if hasattr(cls, "before_create") and callable(
+                getattr(cls, "before_create")):
+            result = cls.before_create(validated)
+            if result is not None:
+                validated = result
+
+        columns      = ", ".join(validated.keys())
         placeholders = ", ".join(["%s"] * len(validated))
         sql = (
             f"INSERT INTO {cls._table} ({columns}) "
@@ -853,11 +860,18 @@ class BaseModel(metaclass=ModelMeta):
             if db.dialect in ("yugabyte", "postgres"):
                 sql = sql.rstrip(";") + " RETURNING id;"
                 cur.execute(sql, list(validated.values()))
-                row = cur.fetchone()
-                return row[0] if row else None
+                row      = cur.fetchone()
+                new_id   = row[0] if row else None
             else:
                 cur.execute(sql, list(validated.values()))
-                return cur.lastrowid
+                new_id = cur.lastrowid
+
+        # ── Lifecycle hook: after_create ───────────────────────────────
+        if hasattr(cls, "after_create") and callable(
+                getattr(cls, "after_create")):
+            cls.after_create(new_id, validated)
+
+        return new_id
 
     # ------------------------------------------------------------------ #
     #  Read                                                                #
@@ -912,9 +926,15 @@ class BaseModel(metaclass=ModelMeta):
         """
         Update rows matching where_kwargs with data.
         Returns number of affected rows.
-
         User.update({"active": False}, id=1)
         """
+        # ── Lifecycle hook: before_update ──────────────────────────────
+        if hasattr(cls, "before_update") and callable(
+                getattr(cls, "before_update")):
+            result = cls.before_update(data, where_kwargs)
+            if result is not None:
+                data = result
+
         set_clause = ", ".join([f"{k} = %s" for k in data.keys()])
         where, where_vals = cls._build_where(where_kwargs)
         sql = (
@@ -925,7 +945,14 @@ class BaseModel(metaclass=ModelMeta):
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql, list(data.values()) + where_vals)
-            return cur.rowcount
+            rows_affected = cur.rowcount
+
+        # ── Lifecycle hook: after_update ───────────────────────────────
+        if hasattr(cls, "after_update") and callable(
+                getattr(cls, "after_update")):
+            cls.after_update(rows_affected, data, where_kwargs)
+
+        return rows_affected
 
     # ------------------------------------------------------------------ #
     #  Delete                                                              #
@@ -936,15 +963,26 @@ class BaseModel(metaclass=ModelMeta):
         """
         Delete rows matching kwargs.
         Returns number of deleted rows.
-
         User.delete(id=1)
         """
+        # ── Lifecycle hook: before_delete ──────────────────────────────
+        if hasattr(cls, "before_delete") and callable(
+                getattr(cls, "before_delete")):
+            cls.before_delete(kwargs)
+
         where, values = cls._build_where(kwargs)
         sql = f"DELETE FROM {cls._table} WHERE {where};"
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql, values)
-            return cur.rowcount
+            rows_deleted = cur.rowcount
+
+        # ── Lifecycle hook: after_delete ───────────────────────────────
+        if hasattr(cls, "after_delete") and callable(
+                getattr(cls, "after_delete")):
+            cls.after_delete(rows_deleted, kwargs)
+
+        return rows_deleted
 
     # ------------------------------------------------------------------ #
     #  Helpers                                                             #
