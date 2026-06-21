@@ -12,8 +12,9 @@
 
 import pytest
 from mydborm.dialects import get_dialect
-from mydborm.dialects.mysql import MySQLDialect
+from mydborm.dialects.mysql    import MySQLDialect
 from mydborm.dialects.yugabyte import YugabyteDialect
+from mydborm.dialects.postgres import PostgreSQLDialect
 
 
 # ------------------------------------------------------------------ #
@@ -32,7 +33,7 @@ def test_get_yugabyte_dialect():
 
 def test_get_postgres_alias():
     d = get_dialect("postgres")
-    assert d is YugabyteDialect
+    assert d is PostgreSQLDialect
 
 
 def test_get_unknown_dialect_raises():
