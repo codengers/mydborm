@@ -54,6 +54,14 @@ jobs:
           pip install -e ".[dev,cli,async,security]"
           pip install mysql-connector-python psycopg2-binary
 
+      - name: Start YugabyteDB
+        run: |
+          docker run -d --name yugabyte \
+            -p 5433:5433 \
+            -p 7000:7000 \
+            yugabytedb/yugabyte:latest \
+            bin/yugabyted start --daemon=false
+
       - name: Wait for MySQL
         run: |
           python -c "
@@ -69,6 +77,26 @@ jobs:
               except Exception as e:
                   print(f'Waiting... ({i+1}/30)')
                   time.sleep(2)
+          "
+
+      - name: Wait for YugabyteDB
+        run: |
+          python -c "
+          import time, psycopg2
+          for i in range(40):
+              try:
+                  conn = psycopg2.connect(
+                      host='127.0.0.1', port=5433,
+                      user='yugabyte', password='yugabyte', database='yugabyte'
+                  )
+                  conn.close()
+                  print('YugabyteDB ready.')
+                  break
+              except Exception as e:
+                  print(f'Waiting... ({i+1}/40): {e}')
+                  time.sleep(5)
+          else:
+              raise RuntimeError('YugabyteDB did not become ready in time')
           "
 
       - name: Run tests
