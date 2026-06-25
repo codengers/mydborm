@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.5.0] - 2026-06-25
+
+### Improved
+- Test coverage raised from 95% → 96% (909 tests passing)
+- `bulk.py` 80% → 100%, `session.py` 93% → 98%, `db.py` 85% → 94%
+- YugabyteDB provisioned in GitHub Actions CI (no longer skipped)
+- GitHub Actions upgraded to Node.js 24 (checkout@v5, setup-python@v6, upload-artifact@v5)
+- Coverage report now uploads as `coverage.xml` artifact
+
+---
+
 ## [1.4.0] - 2026-06-25
 
 ### Added
