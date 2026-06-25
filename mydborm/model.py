@@ -539,6 +539,30 @@ class QueryBuilder:
         rows = self._model._fetch(sql + ";", params)
         return list(rows[0].values())[0]
 
+    def update(self, **kwargs) -> int:
+        """Bulk-update matching rows. Returns affected row count.
+
+        Example:
+            User.query().where("active", False).update(role="guest")
+        """
+        if not kwargs:
+            return 0
+        table   = self._model._table
+        set_sql = ", ".join(f"{col} = %s" for col in kwargs)
+        params  = list(kwargs.values())
+        sql     = f"UPDATE {table} SET {set_sql}"
+
+        if self._wheres:
+            clauses = [w[0] for w in self._wheres]
+            sql    += " WHERE " + " AND ".join(clauses)
+            for _, vals in self._wheres:
+                params.extend(vals)
+
+        with db.connect() as conn:
+            cur = conn.cursor()
+            cur.execute(sql + ";", params)
+            return cur.rowcount
+
     def delete(self) -> int:
         """Delete all matching rows. Returns affected row count."""
         table  = self._model._table
