@@ -556,6 +556,36 @@ class QueryBuilder:
             cur.execute(sql + ";", params)
             return cur.rowcount
 
+    def paginate(self, page: int = 1, per_page: int = 20) -> dict:
+        """Return a paginated result dict.
+
+        Args:
+            page     : 1-based page number (default 1)
+            per_page : rows per page (default 20)
+
+        Returns:
+            {
+                "data"    : list of rows,
+                "total"   : total matching rows,
+                "pages"   : total number of pages,
+                "page"    : current page,
+                "per_page": rows per page,
+            }
+        """
+        if page < 1:
+            page = 1
+        total  = self.count()
+        pages  = max(1, -(-total // per_page))   # ceiling division
+        offset = (page - 1) * per_page
+        data   = self.limit(per_page).offset(offset).all()
+        return {
+            "data"    : data,
+            "total"   : total,
+            "pages"   : pages,
+            "page"    : page,
+            "per_page": per_page,
+        }
+
     def __repr__(self):
         sql, params = self._build_sql()
         return f"<QueryBuilder sql={sql!r} params={params!r}>"

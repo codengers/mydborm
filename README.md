@@ -16,7 +16,7 @@ Zero bloat. Declarative models. Full CRUD. Bulk ops. Async. Migrations. CLI incl
 |---|---|
 | Declarative models with 11+ field types | ✅ |
 | Full CRUD — create, get, all, filter, update, delete | ✅ |
-| QueryBuilder — where, operators, order, limit, offset | ✅ |
+| QueryBuilder — where, operators, order, limit, offset, paginate | ✅ |
 | JOIN support — inner, left, right | ✅ |
 | Aggregates — sum, avg, min, max, count | ✅ |
 | Relationships — has_many, belongs_to, many_to_many | ✅ |
@@ -158,6 +158,16 @@ User.query().where("email__like", "%@example.com").all()
 total = User.query().where("active", True).count()
 avg   = Order.query().avg("total")
 top5  = Order.query().order_by("total", desc=True).limit(5).all()
+
+# Pagination
+page = User.query().where("active", True).order_by("id").paginate(page=2, per_page=20)
+# {
+#   "data"    : [<list of rows>],
+#   "total"   : 57,
+#   "pages"   : 3,
+#   "page"    : 2,
+#   "per_page": 20,
+# }
 ```
 
 ---
