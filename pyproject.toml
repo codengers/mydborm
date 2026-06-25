@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mydborm"
-version = "1.5.0"
+version = "1.6.0"
 description = "Lightweight ORM for MySQL and YugabyteDB"
 readme = "README.md"
 requires-python = ">=3.8"
