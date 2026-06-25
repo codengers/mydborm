@@ -38,6 +38,25 @@ class Comment(BaseModel, TimestampMixin):
     content = StrField(max_length=500, nullable=False)
 
 
+# Reversed MRO so mixin's create_table is called first (not BaseModel's)
+class MixinTestSoft(SoftDeleteMixin, BaseModel):
+    __tablename__ = "mx_test_soft"
+    id    = IntField(primary_key=True)
+    title = StrField(max_length=100)
+
+
+class MixinTestAudit(AuditMixin, BaseModel):
+    __tablename__ = "mx_test_audit"
+    id    = IntField(primary_key=True)
+    total = FloatField()
+
+
+class MixinTestTS(TimestampMixin, BaseModel):
+    __tablename__ = "mx_test_ts"
+    id      = IntField(primary_key=True)
+    content = StrField(max_length=100)
+
+
 # ------------------------------------------------------------------ #
 #  Fixtures                                                            #
 # ------------------------------------------------------------------ #
@@ -371,3 +390,141 @@ def test_mixins_exported():
     assert SoftDeleteMixin is not None
     assert AuditMixin is not None
     assert TimestampMixin is not None
+
+def test_purge_all_deleted_empty():
+    count = Post.purge_all_deleted()
+    assert count == 0
+
+
+def test_soft_delete_count_with_filter():
+    Post.create(title="Alpha", content="x")
+    Post.create(title="Beta",  content="y")
+    assert Post.count(title="Alpha") == 1
+
+
+def test_soft_delete_exists_true():
+    pid = Post.create(title="Exists")
+    assert Post.exists(id=pid) is True
+
+
+def test_soft_delete_exists_false_after_delete():
+    pid = Post.create(title="Gone")
+    Post.soft_delete(id=pid)
+    assert Post.exists(id=pid) is False
+
+
+def test_audit_all_returns_list():
+    Order.create(total=10.0)
+    Order.create(total=20.0)
+    rows = Order.all()
+    assert len(rows) >= 2
+
+
+def test_audit_filter_returns_matching():
+    Order.create(total=999.0)
+    rows = Order.filter(total=999.0)
+    assert len(rows) >= 1
+
+
+def test_timestamp_filter():
+    cid = Comment.create(content="Hello")
+    rows = Comment.filter(id=cid)
+    assert len(rows) == 1
+
+
+# ------------------------------------------------------------------ #
+#  TimestampMixin.all (lines 383-384)                                 #
+# ------------------------------------------------------------------ #
+
+def test_timestamp_all_returns_list():
+    """Comment.all() calls TimestampMixin.all (injected via __init_subclass__)."""
+    Comment.create(content="First")
+    Comment.create(content="Second")
+    rows = Comment.all()  # lines 383-384
+    assert len(rows) >= 2
+
+
+# ------------------------------------------------------------------ #
+#  AuditMixin.age() / was_updated() edge cases (312, 314, 322)       #
+# ------------------------------------------------------------------ #
+
+def test_audit_age_returns_none_when_no_created_at():
+    """age() returns None when created_at is None (line 312)."""
+    oid = Order.create(total=50.0)
+    order = Order.get(id=oid)
+    order._data["created_at"] = None
+    assert order.age() is None  # line 312
+
+
+def test_audit_age_with_string_created_at():
+    """age() parses string created_at via strptime (line 314)."""
+    oid = Order.create(total=50.0)
+    order = Order.get(id=oid)
+    order._data["created_at"] = "2024-01-01 00:00:00"
+    age = order.age()  # line 314
+    assert age is not None
+
+
+def test_audit_was_updated_returns_false_when_none():
+    """was_updated() returns False when created_at or updated_at is None (line 322)."""
+    oid = Order.create(total=50.0)
+    order = Order.get(id=oid)
+    order._data["created_at"] = None
+    assert order.was_updated() is False  # line 322
+
+
+# ------------------------------------------------------------------ #
+#  _add_col_to_db direct call (lines 26-34)                          #
+# ------------------------------------------------------------------ #
+
+def test_add_col_to_db_adds_missing_column():
+    """_add_col_to_db adds a column when it's missing from the table."""
+    from mydborm.mixins import _add_col_to_db
+    table = "mx_bare_col_test"
+    with db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute(f"DROP TABLE IF EXISTS {table}")
+        cur.execute(f"CREATE TABLE {table} (id INT PRIMARY KEY)")
+    # Column not in schema → should add it (lines 26-34)
+    _add_col_to_db(table, "extra_col", "VARCHAR(100) NULL")
+    with db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute(f"DESCRIBE {table}")
+        cols = [row[0] for row in cur.fetchall()]
+    assert "extra_col" in cols
+    with db.connect() as conn:
+        conn.cursor().execute(f"DROP TABLE IF EXISTS {table}")
+
+
+# ------------------------------------------------------------------ #
+#  Mixin create_table via reversed MRO (90-93, 248-257, 362-365)    #
+# ------------------------------------------------------------------ #
+
+def test_soft_delete_mixin_create_table_direct():
+    """SoftDeleteMixin.create_table is called when mixin comes first in MRO."""
+    with db.connect() as conn:
+        conn.cursor().execute("DROP TABLE IF EXISTS mx_test_soft")
+    MixinTestSoft.create_table()  # lines 90-93
+    assert "deleted_at" in MixinTestSoft._fields
+    with db.connect() as conn:
+        conn.cursor().execute("DROP TABLE IF EXISTS mx_test_soft")
+
+
+def test_audit_mixin_create_table_direct():
+    """AuditMixin.create_table is called when mixin comes first in MRO."""
+    with db.connect() as conn:
+        conn.cursor().execute("DROP TABLE IF EXISTS mx_test_audit")
+    MixinTestAudit.create_table()  # lines 248-257
+    assert "created_at" in MixinTestAudit._fields
+    with db.connect() as conn:
+        conn.cursor().execute("DROP TABLE IF EXISTS mx_test_audit")
+
+
+def test_timestamp_mixin_create_table_direct():
+    """TimestampMixin.create_table is called when mixin comes first in MRO."""
+    with db.connect() as conn:
+        conn.cursor().execute("DROP TABLE IF EXISTS mx_test_ts")
+    MixinTestTS.create_table()  # lines 362-365
+    assert "created_at" in MixinTestTS._fields
+    with db.connect() as conn:
+        conn.cursor().execute("DROP TABLE IF EXISTS mx_test_ts")
