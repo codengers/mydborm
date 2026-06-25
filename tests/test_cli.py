@@ -11,9 +11,24 @@
 # =============================================================================
 
 import os
+import socket
 import pytest
 from typer.testing import CliRunner
 from mydborm.cli import cli
+
+
+def _yugabyte_available():
+    try:
+        with socket.create_connection(("127.0.0.1", 5433), timeout=2):
+            return True
+    except OSError:
+        return False
+
+
+skip_no_yugabyte = pytest.mark.skipif(
+    not _yugabyte_available(),
+    reason="YugabyteDB not available on 127.0.0.1:5433",
+)
 
 runner = CliRunner()
 
@@ -492,6 +507,7 @@ YB_OPTS = [
 ]
 
 
+@skip_no_yugabyte
 def test_ping_yugabyte_success():
     """ping against YugabyteDB covers the else branch (lines 85-94)."""
     from mydborm import db as _db
@@ -502,6 +518,7 @@ def test_ping_yugabyte_success():
     assert "connected" in result.output.lower()
 
 
+@skip_no_yugabyte
 def test_ping_yugabyte_shows_version():
     from mydborm import db as _db
     _db.close()
@@ -511,6 +528,7 @@ def test_ping_yugabyte_shows_version():
     assert "yugabyte" in result.output.lower() or "version" in result.output.lower()
 
 
+@skip_no_yugabyte
 def test_tables_yugabyte():
     """tables command with yugabyte dialect covers line 237."""
     from mydborm import db as _db
@@ -521,6 +539,7 @@ def test_tables_yugabyte():
     assert "table" in result.output.lower() or "found" in result.output.lower()
 
 
+@skip_no_yugabyte
 def test_inspect_yugabyte():
     """inspect with yugabyte covers lines 133-138 and 176-195."""
     from mydborm import db as _db
