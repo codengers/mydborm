@@ -249,3 +249,58 @@ def test_repr():
     assert "QueryBuilder" in repr(q)
     assert "active" in repr(q)
 
+
+# ------------------------------------------------------------------ #
+#  paginate()                                                          #
+# ------------------------------------------------------------------ #
+
+def test_paginate_first_page():
+    result = Item.query().order_by("id").paginate(page=1, per_page=3)
+    assert result["page"]     == 1
+    assert result["per_page"] == 3
+    assert result["total"]    == 5
+    assert result["pages"]    == 2
+    assert len(result["data"]) == 3
+
+
+def test_paginate_second_page():
+    result = Item.query().order_by("id").paginate(page=2, per_page=3)
+    assert result["page"]     == 2
+    assert len(result["data"]) == 2
+
+
+def test_paginate_last_page_partial():
+    result = Item.query().paginate(page=2, per_page=4)
+    assert result["total"]    == 5
+    assert result["pages"]    == 2
+    assert len(result["data"]) == 1
+
+
+def test_paginate_with_filter():
+    result = Item.query().where("active", True).paginate(page=1, per_page=10)
+    assert result["total"]    == 3
+    assert len(result["data"]) == 3
+
+
+def test_paginate_default_args():
+    result = Item.query().paginate()
+    assert result["page"]     == 1
+    assert result["per_page"] == 20
+    assert result["total"]    == 5
+    assert result["pages"]    == 1
+
+
+def test_paginate_page_below_one_clamped():
+    result = Item.query().paginate(page=0, per_page=3)
+    assert result["page"]     == 1
+    assert len(result["data"]) == 3
+
+
+def test_paginate_empty_table():
+    with db.connect() as conn:
+        conn.cursor().execute("DELETE FROM items")
+    result = Item.query().paginate(page=1, per_page=5)
+    assert result["total"] == 0
+    assert result["pages"] == 1
+    assert result["data"]  == []
+
