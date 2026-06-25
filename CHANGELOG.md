@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.6.0] - 2026-06-25
+
+### Added
+- `QueryBuilder.paginate(page, per_page)` — returns `{data, total, pages, page, per_page}`
+- Page clamping: `page < 1` is treated as `page=1`
+- 7 new tests in `test_query_builder.py`
+
+---
+
 ## [1.5.0] - 2026-06-25
 
 ### Improved
