@@ -280,3 +280,135 @@ def test_encrypted_field_decrypt_value_none():
     f.name = "data"
     result = f.decrypt_value(None)  # line 1236
     assert result is None
+
+
+# ------------------------------------------------------------------ #
+#  Field._format_default and __repr__ (lines 94, 96, 100-104)        #
+# ------------------------------------------------------------------ #
+
+def test_field_str_default_formatting():
+    from mydborm import StrField
+    f = StrField(max_length=50, default="hello")
+    f.name = "label"
+    sql = f.to_sql_def("mysql")
+    assert "'hello'" in sql  # line 94
+
+
+def test_field_bool_default_formatting():
+    from mydborm import BoolField
+    f = BoolField(default=True)
+    f.name = "active"
+    sql = f.to_sql_def("mysql")
+    assert "DEFAULT 1" in sql  # line 96
+
+
+def test_field_repr():
+    from mydborm import IntField
+    f = IntField()
+    f.name = "count"
+    r = repr(f)  # lines 100-104
+    assert "IntField" in r
+    assert "count" in r
+
+
+# ------------------------------------------------------------------ #
+#  Extended integer field type errors (lines 426-427, 456-457,        #
+#  487-488, 520-521, 563-564, 816, 852)                               #
+# ------------------------------------------------------------------ #
+
+def test_tinyint_field_invalid_type():
+    from mydborm.fields import TinyIntField
+    f = TinyIntField()
+    f.name = "tiny"
+    with pytest.raises(TypeError):
+        f.validate("bad")  # lines 426-427
+
+
+def test_smallint_field_invalid_type():
+    from mydborm.fields import SmallIntField
+    f = SmallIntField()
+    f.name = "small"
+    with pytest.raises(TypeError):
+        f.validate("bad")  # lines 456-457
+
+
+def test_bigint_field_invalid_type():
+    from mydborm.fields import BigIntField
+    f = BigIntField()
+    f.name = "big"
+    with pytest.raises(TypeError):
+        f.validate("bad")  # lines 487-488
+
+
+def test_unsigned_bigint_field_invalid_type():
+    from mydborm.fields import UnsignedBigIntField
+    f = UnsignedBigIntField()
+    f.name = "ubig"
+    with pytest.raises(TypeError):
+        f.validate("bad")  # lines 520-521
+
+
+def test_double_field_invalid_type():
+    from mydborm.fields import DoubleField
+    f = DoubleField()
+    f.name = "dbl"
+    with pytest.raises(TypeError):
+        f.validate("bad")  # lines 563-564
+
+
+def test_time_field_invalid_type():
+    from mydborm.fields import TimeField
+    f = TimeField()
+    f.name = "start_time"
+    with pytest.raises(TypeError):
+        f.validate(12345)  # line 816
+
+
+def test_timestamp_field_invalid_type():
+    from mydborm.fields import TimestampField
+    f = TimestampField()
+    f.name = "created_at"
+    with pytest.raises(TypeError):
+        f.validate(12345)  # line 852
+
+
+# ------------------------------------------------------------------ #
+#  PasswordField.verify exception catch (line 1073-1074)              #
+#  PasswordField.needs_rehash (lines 1107-1114)                       #
+# ------------------------------------------------------------------ #
+
+def test_password_field_verify_invalid_hash_returns_false():
+    from mydborm.fields import PasswordField
+    f = PasswordField()
+    f.name = "password"
+    result = f.verify("plain", b"not_a_valid_hash")  # lines 1073-1074
+    assert result is False
+
+
+def test_password_field_needs_rehash():
+    from mydborm.fields import PasswordField
+    f = PasswordField()
+    f.name = "password"
+    hashed = PasswordField.hash("secret")
+    result = f.needs_rehash(hashed)  # lines 1107-1114
+    assert isinstance(result, bool)
+
+
+# ------------------------------------------------------------------ #
+#  EncryptedField.encrypt / decrypt static methods (1268-1269,        #
+#  1286-1287)                                                         #
+# ------------------------------------------------------------------ #
+
+def test_encrypted_field_encrypt_static():
+    from mydborm.fields import EncryptedField
+    key = EncryptedField.generate_key()
+    cipher = EncryptedField.encrypt("secret", key)  # lines 1268-1274
+    assert cipher.startswith("gAAAAA")
+
+
+def test_encrypted_field_decrypt_static():
+    from mydborm.fields import EncryptedField
+    key = EncryptedField.generate_key()
+    cipher = EncryptedField.encrypt("secret", key)
+    plain = EncryptedField.decrypt(cipher, key)  # lines 1284-1289
+    assert plain == "secret"

@@ -345,3 +345,110 @@ def test_repr_updates_with_state(seeded):
     s = Session()
     s.all(Member)
     assert "tracked=3" in repr(s)
+
+
+# ------------------------------------------------------------------ #
+#  TrackedInstance.__repr__ (line 74)                                 #
+# ------------------------------------------------------------------ #
+
+def test_tracked_instance_repr(seeded):
+    s = Session()
+    inst = s.get(Member, id=seeded["m1"])
+    pk = s._get_pk_value(inst)
+    tracked = s._identity_map[s._identity_key(Member, pk)]
+    r = repr(tracked)  # line 74
+    assert "TrackedInstance" in r
+    assert "Member" in r
+
+
+# ------------------------------------------------------------------ #
+#  Session.__exit__ when flush raises (lines 131-133)                 #
+# ------------------------------------------------------------------ #
+
+def test_session_exit_flush_raises(seeded):
+    """If flush() raises inside __exit__, rollback is called and exc re-raised."""
+    s = Session()
+    u = s.get(Member, id=seeded["m1"])
+    u["name"] = "X"
+
+    original_flush = s.flush
+
+    def bad_flush():
+        raise RuntimeError("flush failed")
+
+    s.flush = bad_flush
+    with pytest.raises(RuntimeError, match="flush failed"):
+        s.__exit__(None, None, None)  # lines 131-133: flush fails → rollback + raise
+
+
+# ------------------------------------------------------------------ #
+#  Session._get_pk_value returns None for model with no PK (line 151) #
+# ------------------------------------------------------------------ #
+
+def test_get_pk_value_no_pk_returns_none():
+    from mydborm.model import ModelInstance
+
+    class _NoPkModel:
+        __name__ = "_NoPkModel"
+        _table = "nopk"
+        _composite_pk = None
+        _fields = {}
+
+    inst = ModelInstance(_NoPkModel, {"name": "test"})
+    s = Session()
+    result = s._get_pk_value(inst)  # line 151
+    assert result is None
+
+
+# ------------------------------------------------------------------ #
+#  Session._register returns cached instance (line 160)               #
+# ------------------------------------------------------------------ #
+
+def test_register_returns_cached_instance(seeded):
+    s = Session()
+    inst1 = s.get(Member, id=seeded["m1"])
+    # Re-register the same pk — should return cached TrackedInstance
+    pk   = s._get_pk_value(inst1)
+    key  = s._identity_key(Member, pk)
+    cached = s._register(inst1)  # line 160: already in map → returns cached
+    assert s._identity_map[key] is cached
+
+
+# ------------------------------------------------------------------ #
+#  Session.delete when instance not in identity_map (lines 285-286)   #
+# ------------------------------------------------------------------ #
+
+def test_delete_not_in_identity_map(seeded):
+    s = Session()
+    # Fetch then expunge so it's not in the map
+    inst = s.get(Member, id=seeded["m1"])
+    s.expunge(inst)
+    s.delete(inst)  # lines 285-286: not in identity_map path
+    assert any(t.instance is inst for t in s._deleted)
+
+
+# ------------------------------------------------------------------ #
+#  Session.is_dirty / dirty_fields / original_value for untracked     #
+#  instances (lines 415, 423, 431)                                    #
+# ------------------------------------------------------------------ #
+
+def test_is_dirty_returns_false_for_untracked(seeded):
+    s = Session()
+    inst = s.get(Member, id=seeded["m1"])
+    s.expunge(inst)
+    assert s.is_dirty(inst) is False  # line 415
+
+
+def test_dirty_fields_returns_empty_for_untracked(seeded):
+    s = Session()
+    inst = s.get(Member, id=seeded["m1"])
+    s.expunge(inst)
+    assert s.dirty_fields(inst) == []  # line 423
+
+
+def test_original_value_returns_none_for_untracked(seeded):
+    s = Session()
+    inst = s.get(Member, id=seeded["m1"])
+    s.expunge(inst)
+    result = s.original_value(inst, "name")  # line 431
+    assert result is None
