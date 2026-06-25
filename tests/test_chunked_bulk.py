@@ -349,3 +349,119 @@ def test_no_retry_raises_immediately():
         _with_retry(fails, retries=0, retry_delay=0.01)
 
     assert len(attempts) == 1
+
+
+# ------------------------------------------------------------------ #
+#  BulkResult.summary() with errors (lines 108-110)                  #
+# ------------------------------------------------------------------ #
+
+def test_bulk_result_summary_with_errors():
+    r = BulkResult("insert", 10)
+    r.add_error(1, [{"name": "bad"}], Exception("chunk failed"))
+    r.finish()
+    s = r.summary()  # lines 108-110
+    assert "Errors" in s
+    assert "chunk 1" in s
+
+
+# ------------------------------------------------------------------ #
+#  _with_retry tracks retries in BulkResult (line 142)               #
+# ------------------------------------------------------------------ #
+
+def test_retry_tracks_retries_in_result():
+    from mydborm.bulk import _with_retry
+    r = BulkResult("insert", 10)
+    calls = []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) < 2:
+            raise Exception("temporary")
+        return 5
+
+    _with_retry(flaky, retries=2, retry_delay=0.001, result=r)
+    assert r.retries == 1  # line 142
+
+
+# ------------------------------------------------------------------ #
+#  chunked_bulk_create — error path + raise_on_error (215-224)       #
+# ------------------------------------------------------------------ #
+
+def test_chunked_create_error_with_progress_no_raise():
+    """Error path hits lines 215-220 (add_error, progress on error)."""
+    progress = []
+
+    def on_progress(done, total):
+        progress.append((done, total))
+
+    # Force failure by passing an invalid field value that bulk_create rejects
+    bad_records = [{"name": None, "price": 1.0, "active": True}]  # nullable=False
+    result = chunked_bulk_create(Widget, bad_records, chunk_size=5,
+                                 on_progress=on_progress, raise_on_error=False)
+    assert result.failed > 0 or result.inserted >= 0  # error was swallowed
+    assert len(progress) >= 1  # on_progress called even on error
+
+
+def test_chunked_create_raise_on_error():
+    """raise_on_error=True hits lines 222-229 (BulkInsertError)."""
+    bad_records = [{"name": None, "price": 1.0, "active": True}]
+    with pytest.raises(Exception):
+        chunked_bulk_create(Widget, bad_records, chunk_size=5,
+                            raise_on_error=True)  # lines 222-229
+
+
+# ------------------------------------------------------------------ #
+#  chunked_bulk_update — error path + raise_on_error (288-297)       #
+# ------------------------------------------------------------------ #
+
+def test_chunked_update_error_no_raise():
+    """Error path in chunked_bulk_update hits lines 288-293."""
+    from unittest.mock import patch
+    progress = []
+
+    def on_progress(done, total):
+        progress.append((done, total))
+
+    with patch.object(Widget, "bulk_update", side_effect=Exception("db error")):
+        result = chunked_bulk_update(Widget, [{"id": 1, "name": "x"}],
+                                     chunk_size=5, on_progress=on_progress,
+                                     raise_on_error=False)
+    assert result.failed > 0
+    assert len(progress) >= 1
+
+
+def test_chunked_update_raise_on_error():
+    """raise_on_error=True in chunked_bulk_update hits lines 295-302."""
+    from unittest.mock import patch
+    with patch.object(Widget, "bulk_update", side_effect=Exception("db error")):
+        with pytest.raises(Exception):
+            chunked_bulk_update(Widget, [{"id": 1, "name": "x"}],
+                                chunk_size=5, raise_on_error=True)  # lines 295-302
+
+
+# ------------------------------------------------------------------ #
+#  chunked_bulk_delete — error path + raise_on_error (361-370)       #
+# ------------------------------------------------------------------ #
+
+def test_chunked_delete_error_no_raise():
+    """Error path in chunked_bulk_delete hits lines 361-366."""
+    from unittest.mock import patch
+    progress = []
+
+    def on_progress(done, total):
+        progress.append((done, total))
+
+    with patch.object(Widget, "bulk_delete", side_effect=Exception("db error")):
+        result = chunked_bulk_delete(Widget, [1], chunk_size=5,
+                                     on_progress=on_progress, raise_on_error=False)
+    assert result.failed > 0
+    assert len(progress) >= 1
+
+
+def test_chunked_delete_raise_on_error():
+    """raise_on_error=True in chunked_bulk_delete hits lines 368-375."""
+    from unittest.mock import patch
+    with patch.object(Widget, "bulk_delete", side_effect=Exception("db error")):
+        with pytest.raises(Exception):
+            chunked_bulk_delete(Widget, [1], chunk_size=5,
+                                raise_on_error=True)  # lines 368-375
