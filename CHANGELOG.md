@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.0] - 2026-06-25
+
+### Added
+- PostgreSQL dialect — `get_dialect('postgres')`, `PostgreSQLDialect`, port 5432
+- Composite primary keys — `__pk__ = ("col1", "col2")` for MySQL + YugabyteDB
+- Index management — `create_index`, `drop_index`, `list_indexes`, `__indexes__`
+- Lifecycle hooks — `before_create`, `after_create`, `before_update`, `after_update`, `before_delete`, `after_delete`
+
+### Improved
+- Test coverage raised from 88% → 95% (930 tests passing)
+- YugabyteDB CLI tests gracefully skipped in CI when service is unavailable
+
+---
+
 ## [0.5.0] - 2026-06-15 (in development)
 
 ### Added

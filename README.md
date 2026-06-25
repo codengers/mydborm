@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://github.com/codengers/mydborm/actions/workflows/ci.yml/badge.svg)](https://github.com/codengers/mydborm/actions)
 
-**mydborm** is a production-grade lightweight ORM for **MySQL 8+** and **YugabyteDB (YSQL)**.
+**mydborm** is a production-grade lightweight ORM for **MySQL 8+**, **PostgreSQL**, and **YugabyteDB (YSQL)**.
 Zero bloat. Declarative models. Full CRUD. Bulk ops. Async. Migrations. CLI included.
 
 ---
@@ -14,12 +14,15 @@ Zero bloat. Declarative models. Full CRUD. Bulk ops. Async. Migrations. CLI incl
 
 | Feature | Status |
 |---|---|
-| Declarative models with 11 field types | ✅ |
+| Declarative models with 11+ field types | ✅ |
 | Full CRUD — create, get, all, filter, update, delete | ✅ |
 | QueryBuilder — where, operators, order, limit, offset | ✅ |
 | JOIN support — inner, left, right | ✅ |
 | Aggregates — sum, avg, min, max, count | ✅ |
 | Relationships — has_many, belongs_to, many_to_many | ✅ |
+| Composite primary keys — `__pk__` | ✅ |
+| Index management — create, drop, list, `__indexes__` | ✅ |
+| Lifecycle hooks — before/after create, update, delete | ✅ |
 | Bulk operations — create, update, delete, upsert | ✅ |
 | Chunked bulk with retry + progress callback | ✅ |
 | Raw SQL — execute, fetchall, fetchone | ✅ |
@@ -29,12 +32,12 @@ Zero bloat. Declarative models. Full CRUD. Bulk ops. Async. Migrations. CLI incl
 | Async support — aiomysql + aiopg | ✅ |
 | Connection pooling + ping + reconnect | ✅ |
 | Schema migrations with history tracking | ✅ |
-| MySQL + YugabyteDB dialect support | ✅ |
+| MySQL + PostgreSQL + YugabyteDB dialect support | ✅ |
 | UTF-8 / unicode support | ✅ |
 | Custom exception hierarchy | ✅ |
 | Rich CLI — version, ping, tables, inspect, migrate, pool | ✅ |
 | CI — Python 3.9, 3.10, 3.11, 3.12 | ✅ |
-| 263 tests passing | ✅ |
+| 930 tests, 95% coverage | ✅ |
 
 ---
 
@@ -57,7 +60,7 @@ from mydborm import db
 
 # Direct config
 db.configure(
-    dialect  = "mysql",       # or "yugabyte"
+    dialect  = "mysql",       # or "yugabyte" or "postgres"
     host     = "127.0.0.1",
     port     = 3306,
     user     = "root",
@@ -387,6 +390,81 @@ except RetryExhaustedError as e:
 
 ---
 
+### 15. Composite primary keys
+
+```python
+class OrderItem(BaseModel):
+    __tablename__ = "order_items"
+    __pk__        = ("order_id", "product_id")   # composite PK
+    order_id   = IntField(nullable=False)
+    product_id = IntField(nullable=False)
+    qty        = IntField(nullable=False)
+
+OrderItem.create_table()
+OrderItem.create(order_id=1, product_id=42, qty=3)
+row = OrderItem.get(order_id=1, product_id=42)
+```
+
+---
+
+### 16. Index management
+
+```python
+class Article(BaseModel):
+    __tablename__ = "articles"
+    __indexes__   = [
+        {"name": "idx_slug",   "columns": ["slug"],        "unique": True},
+        {"name": "idx_status", "columns": ["status", "published_at"]},
+    ]
+    id           = IntField(primary_key=True)
+    slug         = StrField(max_length=200, nullable=False)
+    status       = StrField(max_length=20)
+    published_at = DateTimeField()
+
+Article.create_table()          # indexes created automatically
+
+# Manual index management
+Article.create_index("idx_author", ["author_id"])
+Article.drop_index("idx_author")
+print(Article.list_indexes())   # [{"name": ..., "columns": [...], "unique": ...}]
+```
+
+---
+
+### 17. Lifecycle hooks
+
+```python
+class User(BaseModel):
+    __tablename__ = "users"
+    id       = IntField(primary_key=True)
+    username = StrField(max_length=100, nullable=False)
+    email    = StrField(max_length=255, nullable=False)
+
+    @classmethod
+    def before_create(cls, data: dict) -> dict:
+        data["username"] = data["username"].strip().lower()
+        return data
+
+    @classmethod
+    def after_create(cls, record_id, data: dict):
+        print(f"User {record_id} created: {data['username']}")
+
+    @classmethod
+    def before_update(cls, data: dict, **filters) -> dict:
+        return data
+
+    @classmethod
+    def after_delete(cls, deleted_count: int, **filters):
+        print(f"Deleted {deleted_count} user(s)")
+
+uid = User.create(username="  Alice  ", email="alice@example.com")
+# → User 1 created: alice
+User.delete(id=uid)
+# → Deleted 1 user(s)
+```
+
+---
+
 ## Field types
 
 | Field | MySQL | YugabyteDB |
@@ -431,6 +509,14 @@ services:
     ports:
       - "3306:3306"
 
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+
   yugabyte:
     image: yugabytedb/yugabyte:latest
     command: bash -c "bin/yugabyted start --daemon=false"
@@ -444,26 +530,38 @@ docker compose up -d
 
 ---
 
-## YugabyteDB support
+## Dialect support
+
+### MySQL
 
 ```python
-db.configure(
-    dialect  = "yugabyte",
-    host     = "127.0.0.1",
-    port     = 5433,
-    user     = "yugabyte",
-    password = "yugabyte",
-    database = "yugabyte",
-)
+db.configure(dialect="mysql", host="127.0.0.1", port=3306,
+             user="root", password="root", database="mydb")
 ```
 
-mydborm automatically uses YSQL-compatible SQL:
-- `SERIAL` primary keys
+### PostgreSQL
+
+```python
+db.configure(dialect="postgres", host="127.0.0.1", port=5432,
+             user="postgres", password="postgres", database="mydb")
+```
+
+PostgreSQL-specific behaviour:
+- `SERIAL` / `BIGSERIAL` primary keys
 - Native `BOOLEAN`
-- `JSONB` instead of `JSON`
+- `JSONB` storage for `JSONField`
 - Double-quoted identifiers
 - `RETURNING id` on INSERT
 - `ON CONFLICT DO UPDATE` for upsert
+
+### YugabyteDB
+
+```python
+db.configure(dialect="yugabyte", host="127.0.0.1", port=5433,
+             user="yugabyte", password="yugabyte", database="yugabyte")
+```
+
+YugabyteDB uses YSQL (PostgreSQL-compatible) and behaves identically to the PostgreSQL dialect with full distributed SQL support.
 
 ---
 
@@ -483,17 +581,19 @@ mydborm/
 ├── mydborm/
 │   ├── __init__.py       # Public API
 │   ├── db.py             # Connection manager + pooling + transactions
-│   ├── fields.py         # 11 field types with dialect-aware SQL
+│   ├── fields.py         # 11+ field types with dialect-aware SQL
 │   ├── model.py          # BaseModel + QueryBuilder + relationships
 │   ├── bulk.py           # Chunked bulk ops + BulkResult + retry
 │   ├── async_db.py       # Async ORM via aiomysql/aiopg
 │   ├── migrations.py     # Schema migration engine
+│   ├── mixins.py         # SoftDeleteMixin, AuditMixin, TimestampMixin
 │   ├── exceptions.py     # 24 custom exception types
 │   ├── cli.py            # Rich CLI commands
 │   └── dialects/
 │       ├── mysql.py      # MySQL SQL generation
+│       ├── postgres.py   # PostgreSQL SQL generation
 │       └── yugabyte.py   # YugabyteDB SQL generation
-├── tests/                # 263 tests
+├── tests/                # 930 tests, 95% coverage
 ├── examples/             # Usage examples
 └── pyproject.toml
 ```
