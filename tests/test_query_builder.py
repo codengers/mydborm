@@ -228,6 +228,41 @@ def test_max():
 #  Delete via query                                                    #
 # ------------------------------------------------------------------ #
 
+# ------------------------------------------------------------------ #
+#  update() via query                                                  #
+# ------------------------------------------------------------------ #
+
+def test_query_update_with_filter():
+    updated = Item.query().where("active", False).update(stock=0)
+    assert updated == 2
+    assert Item.query().where("stock", 0).count() == 2
+
+
+def test_query_update_multiple_fields():
+    updated = Item.query().where("name", "Apple").update(price=99.99, stock=999)
+    assert updated == 1
+    row = Item.query().where("name", "Apple").first()
+    assert row["price"] == 99.99
+    assert row["stock"] == 999
+
+
+def test_query_update_no_filter_updates_all():
+    # Set stock=0 for all 5 rows (all have stock > 0 in seed data)
+    updated = Item.query().update(stock=0)
+    assert updated == 5
+    assert Item.query().where("stock", 0).count() == 5
+
+
+def test_query_update_no_kwargs_returns_zero():
+    result = Item.query().update()
+    assert result == 0
+
+
+def test_query_update_no_matching_rows():
+    updated = Item.query().where("name", "NonExistent").update(stock=0)
+    assert updated == 0
+
+
 def test_query_delete():
     deleted = Item.query().where("active", False).delete()
     assert deleted == 2
