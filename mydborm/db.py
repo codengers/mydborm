@@ -36,7 +36,7 @@ from urllib.parse import urlparse
 # Thread-local storage — one connection per thread
 _local = threading.local()
 
-SUPPORTED_DIALECTS = ("mysql", "yugabyte", "postgres")
+SUPPORTED_DIALECTS = ("mysql", "yugabyte", "postgres", "postgresql")
 
 
 def _parse_url(url: str) -> dict:
@@ -50,15 +50,18 @@ def _parse_url(url: str) -> dict:
     p = urlparse(url)
     scheme = p.scheme.lower()
 
-    if "yugabyte" in scheme or "postgres" in scheme:
+    if "yugabyte" in scheme:
         dialect = "yugabyte"
+    elif "postgresql" in scheme or "postgres" in scheme:
+        dialect = "postgres"
     else:
         dialect = "mysql"
 
     return {
         "dialect":   dialect,
         "host":      p.hostname or "127.0.0.1",
-        "port":      p.port or (5433 if dialect == "yugabyte" else 3306),
+        "port":      p.port or (5433 if dialect == "yugabyte" else
+                                5432 if dialect == "postgres" else 3306),
         "user":      p.username or "root",
         "password":  p.password or "",
         "database":  p.path.lstrip("/"),
@@ -159,7 +162,7 @@ class ConnectionManager:
                     "Run: pip install mysql-connector-python"
                 )
 
-        elif self.dialect in ("yugabyte", "postgres"):
+        elif self.dialect in ("yugabyte", "postgres", "postgresql"):
             try:
                 import psycopg2
                 cfg.setdefault("port", 5433)

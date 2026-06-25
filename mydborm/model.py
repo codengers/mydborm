@@ -695,6 +695,9 @@ class ModelInstance:
         return json.loads(self.to_json(exclude=exclude))
 
     def _get_pk_value(self):
+        comp_pk = getattr(self._model_class, "_composite_pk", None)
+        if comp_pk:
+            return {f: self._data.get(f) for f in comp_pk}
         for fname, field in self._model_class._fields.items():
             if field.primary_key:
                 return self._data.get(fname)
@@ -735,8 +738,10 @@ class ModelMeta(type):
         namespace["_fields"] = fields
         namespace["_table"]  = namespace.get(
             "__tablename__",
-            name.lower() + "s"   # default: ClassName → classnames
+            name.lower() + "s"
         )
+        # Composite PK support — __pk__ = ("col1", "col2")
+        namespace["_composite_pk"] = namespace.get("__pk__", None)
         return super().__new__(mcs, name, bases, namespace)
 
 
@@ -782,11 +787,31 @@ class BaseModel(metaclass=ModelMeta):
     def create_table(cls, if_not_exists: bool = True) -> None:
         """Create the database table for this model."""
         exist_clause = "IF NOT EXISTS " if if_not_exists else ""
-        col_defs = []
+        col_defs    = []
+        dialect     = db.dialect
+        has_comp_pk = bool(getattr(cls, "_composite_pk", None))
 
-        dialect = db.dialect
         for fname, field in cls._fields.items():
-            col_defs.append("  " + fname + " " + field.to_sql_def(dialect))
+            if has_comp_pk and field.primary_key:
+                # Skip inline PRIMARY KEY — will add as table constraint
+                sql_def = field.to_sql_def(dialect)
+                sql_def = (sql_def
+                           .replace(" PRIMARY KEY AUTO_INCREMENT", " NOT NULL AUTO_INCREMENT")
+                           .replace(" PRIMARY KEY", " NOT NULL")
+                           .replace(" SERIAL PRIMARY KEY", " SERIAL")
+                           .replace("SERIAL", "INTEGER NOT NULL"))
+                col_defs.append("  " + fname + " " + sql_def)
+            else:
+                col_defs.append("  " + fname + " " + field.to_sql_def(dialect))
+
+        # Add composite PK constraint
+        if has_comp_pk:
+            pk_cols = getattr(cls, "_composite_pk")
+            if dialect in ("yugabyte", "postgres"):
+                pk_clause = "PRIMARY KEY (" + ", ".join(f'"{c}"' for c in pk_cols) + ")"
+            else:
+                pk_clause = "PRIMARY KEY (" + ", ".join(f"`{c}`" for c in pk_cols) + ")"
+            col_defs.append("  " + pk_clause)
 
         col_separator = ",\n"
         if db.dialect in ("yugabyte", "postgres"):
@@ -802,6 +827,51 @@ class BaseModel(metaclass=ModelMeta):
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql)
+            # Create single-field indexes from field definitions
+            for fname, field in cls._fields.items():
+                if getattr(field, "index", False) and not field.primary_key \
+                        and not getattr(field, "unique", False):
+                    unique    = ""
+                    idx_name  = f"idx_{cls._table}_{fname}".replace("idx_idx_", "idx_")
+                    if db.dialect in ("yugabyte", "postgres"):
+                        idx_sql = (
+                            f'CREATE {unique}INDEX IF NOT EXISTS "{idx_name}" '
+                            f'ON "{cls._table}" ("{fname}")'
+                        )
+                    else:
+                        idx_sql = (
+                            f"CREATE {unique}INDEX `{idx_name}` "
+                            f"ON `{cls._table}` (`{fname}`)"
+                        )
+                    try:
+                        cur.execute(idx_sql)
+                    except Exception:
+                        pass  # index may already exist
+
+            # Create composite indexes from __indexes__
+            for idx in getattr(cls, "__indexes__", []):
+                fields    = idx.get("fields", [])
+                unique    = "UNIQUE " if idx.get("unique", False) else ""
+                idx_name  = idx.get("name") or f"idx_{cls._table}_{'_'.join(fields)}"
+                if not fields:
+                    continue
+                if db.dialect in ("yugabyte", "postgres"):
+                    cols    = ", ".join(f'"{f}"' for f in fields)
+                    idx_sql = (
+                        f'CREATE {unique}INDEX IF NOT EXISTS "{idx_name}" '
+                        f'ON "{cls._table}" ({cols})'
+                    )
+                else:
+                    cols    = ", ".join(f"`{f}`" for f in fields)
+                    idx_sql = (
+                        f"CREATE {unique}INDEX `{idx_name}` "
+                        f"ON `{cls._table}` ({cols})"
+                    )
+                try:
+                    cur.execute(idx_sql)
+                except Exception:
+                    pass
+
         print(f"[mydborm] Table '{cls._table}' ready.")
 
     @classmethod
@@ -817,6 +887,114 @@ class BaseModel(metaclass=ModelMeta):
             cur.execute(sql)
         print(f"[mydborm] Table '{cls._table}' dropped.")
 
+    @classmethod
+    def create_index(
+        cls,
+        fields: list,
+        name: str = None,
+        unique: bool = False,
+    ) -> str:
+        """
+        Create an index on one or more columns.
+
+        Args:
+            fields : list of field names to index
+            name   : optional index name (auto-generated if not provided)
+            unique : if True creates a UNIQUE index
+
+        Returns:
+            Index name created.
+
+        Usage:
+            Product.create_index(["category"])
+            Product.create_index(["category", "price"], name="idx_cat_price")
+            Product.create_index(["email"], unique=True)
+        """
+        if not fields:
+            raise ValueError("create_index requires at least one field.")
+        unique_kw = "UNIQUE " if unique else ""
+        idx_name  = name or f"idx_{cls._table}_{'_'.join(fields)}"
+        if db.dialect in ("yugabyte", "postgres"):
+            cols = ", ".join(f'"{f}"' for f in fields)
+            sql  = (
+                f'CREATE {unique_kw}INDEX IF NOT EXISTS "{idx_name}" '
+                f'ON "{cls._table}" ({cols})'
+            )
+        else:
+            cols = ", ".join(f"`{f}`" for f in fields)
+            sql  = (
+                f"CREATE {unique_kw}INDEX `{idx_name}` "
+                f"ON `{cls._table}` ({cols})"
+            )
+        with db.connect() as conn:
+            conn.cursor().execute(sql)
+        print(f"[mydborm] Index '{idx_name}' created on '{cls._table}'")
+        return idx_name
+
+    @classmethod
+    def drop_index(cls, name: str) -> None:
+        """
+        Drop an index by name.
+
+        Args:
+            name: index name to drop
+
+        Usage:
+            Product.drop_index("idx_products_category")
+        """
+        if db.dialect in ("yugabyte", "postgres"):
+            sql = f'DROP INDEX IF EXISTS "{name}"'
+        else:
+            sql = f"DROP INDEX `{name}` ON `{cls._table}`"
+        with db.connect() as conn:
+            conn.cursor().execute(sql)
+        print(f"[mydborm] Index '{name}' dropped")
+
+    @classmethod
+    def list_indexes(cls) -> list:
+        """
+        List all indexes on this model's table.
+
+        Returns:
+            List of dicts with index info.
+
+        Usage:
+            indexes = Product.list_indexes()
+            for idx in indexes:
+                print(idx["name"], idx["columns"], idx["unique"])
+        """
+        with db.connect() as conn:
+            cur = conn.cursor()
+            if db.dialect in ("yugabyte", "postgres"):
+                cur.execute("""
+                    SELECT indexname, indexdef
+                    FROM pg_indexes
+                    WHERE tablename = %s
+                """, [cls._table])
+                rows = cur.fetchall()
+                return [
+                    {"name": r[0], "definition": r[1],
+                     "unique": "UNIQUE" in (r[1] or "").upper()}
+                    for r in rows
+                ]
+            else:
+                cur.execute(f"SHOW INDEX FROM `{cls._table}`")
+                rows    = cur.fetchall()
+                indexes = {}
+                for row in rows:
+                    name   = row[2]
+                    col    = row[4]
+                    unique = row[1] == 0
+                    if name not in indexes:
+                        indexes[name] = {
+                            "name"    : name,
+                            "columns" : [],
+                            "unique"  : unique,
+                            "primary" : name == "PRIMARY",
+                        }
+                    indexes[name]["columns"].append(col)
+                return list(indexes.values())
+
     # ------------------------------------------------------------------ #
     #  Create                                                              #
     # ------------------------------------------------------------------ #
@@ -829,10 +1007,19 @@ class BaseModel(metaclass=ModelMeta):
         User.create(username="alice", email="alice@example.com")
         """
         # Validate all provided values
-        # Validate all provided values
-        validated = {}
+        validated   = {}
+        comp_pk     = getattr(cls, "_composite_pk", None)
         for fname, field in cls._fields.items():
-            if field.primary_key:
+            if field.primary_key and not comp_pk:
+                continue   # skip auto-increment PK
+            if comp_pk and fname in comp_pk:
+                # composite PK fields are required — include them
+                value = kwargs.get(fname)
+                if value is None:
+                    raise ValueError(
+                        f"Composite PK field '{fname}' is required."
+                    )
+                validated[fname] = value
                 continue
             value = kwargs.get(fname, field.default)
             validated[fname] = field.validate(value)
@@ -842,22 +1029,41 @@ class BaseModel(metaclass=ModelMeta):
             for validator_fn in cls.__validators__:
                 validator_fn(validated)
 
-        columns = ", ".join(validated.keys())
+        # ── Lifecycle hook: before_create ──────────────────────────────
+        if hasattr(cls, "before_create") and callable(
+                getattr(cls, "before_create")):
+            result = cls.before_create(validated)
+            if result is not None:
+                validated = result
+
+        columns      = ", ".join(validated.keys())
         placeholders = ", ".join(["%s"] * len(validated))
         sql = (
             f"INSERT INTO {cls._table} ({columns}) "
             f"VALUES ({placeholders});"
         )
+        comp_pk = getattr(cls, "_composite_pk", None)
         with db.connect() as conn:
             cur = conn.cursor()
-            if db.dialect in ("yugabyte", "postgres"):
+            if db.dialect in ("yugabyte", "postgres") and not comp_pk:
                 sql = sql.rstrip(";") + " RETURNING id;"
                 cur.execute(sql, list(validated.values()))
-                row = cur.fetchone()
-                return row[0] if row else None
+                row    = cur.fetchone()
+                new_id = row[0] if row else None
             else:
                 cur.execute(sql, list(validated.values()))
-                return cur.lastrowid
+                if comp_pk:
+                    # Return dict of composite PK values
+                    new_id = {f: validated[f] for f in comp_pk if f in validated}
+                else:
+                    new_id = cur.lastrowid
+
+        # ── Lifecycle hook: after_create ───────────────────────────────
+        if hasattr(cls, "after_create") and callable(
+                getattr(cls, "after_create")):
+            cls.after_create(new_id, validated)
+
+        return new_id
 
     # ------------------------------------------------------------------ #
     #  Read                                                                #
@@ -912,9 +1118,15 @@ class BaseModel(metaclass=ModelMeta):
         """
         Update rows matching where_kwargs with data.
         Returns number of affected rows.
-
         User.update({"active": False}, id=1)
         """
+        # ── Lifecycle hook: before_update ──────────────────────────────
+        if hasattr(cls, "before_update") and callable(
+                getattr(cls, "before_update")):
+            result = cls.before_update(data, where_kwargs)
+            if result is not None:
+                data = result
+
         set_clause = ", ".join([f"{k} = %s" for k in data.keys()])
         where, where_vals = cls._build_where(where_kwargs)
         sql = (
@@ -925,7 +1137,14 @@ class BaseModel(metaclass=ModelMeta):
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql, list(data.values()) + where_vals)
-            return cur.rowcount
+            rows_affected = cur.rowcount
+
+        # ── Lifecycle hook: after_update ───────────────────────────────
+        if hasattr(cls, "after_update") and callable(
+                getattr(cls, "after_update")):
+            cls.after_update(rows_affected, data, where_kwargs)
+
+        return rows_affected
 
     # ------------------------------------------------------------------ #
     #  Delete                                                              #
@@ -936,15 +1155,26 @@ class BaseModel(metaclass=ModelMeta):
         """
         Delete rows matching kwargs.
         Returns number of deleted rows.
-
         User.delete(id=1)
         """
+        # ── Lifecycle hook: before_delete ──────────────────────────────
+        if hasattr(cls, "before_delete") and callable(
+                getattr(cls, "before_delete")):
+            cls.before_delete(kwargs)
+
         where, values = cls._build_where(kwargs)
         sql = f"DELETE FROM {cls._table} WHERE {where};"
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql, values)
-            return cur.rowcount
+            rows_deleted = cur.rowcount
+
+        # ── Lifecycle hook: after_delete ───────────────────────────────
+        if hasattr(cls, "after_delete") and callable(
+                getattr(cls, "after_delete")):
+            cls.after_delete(rows_deleted, kwargs)
+
+        return rows_deleted
 
     # ------------------------------------------------------------------ #
     #  Helpers                                                             #
@@ -1166,6 +1396,9 @@ class BaseModel(metaclass=ModelMeta):
 
     def _get_pk_value(self):
         """Return the primary key value for this instance."""
+        comp_pk = getattr(self.__class__, "_composite_pk", None)
+        if comp_pk:
+            return {f: self._data.get(f) for f in comp_pk}
         for fname, field in self._fields.items():
             if field.primary_key:
                 return self._data.get(fname)

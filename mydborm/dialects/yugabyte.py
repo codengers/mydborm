@@ -1,18 +1,5 @@
 # =============================================================================
 # File        : dialects/yugabyte.py
-# Project     : mydborm - Lightweight ORM for MySQL and YugabyteDB
-# Author      : Atikrant Upadhye
-# Created     : 2026-06-15
-# Version     : 0.2.0
-# License     : MIT
-# Description : YugabyteDB (YSQL) dialect. Uses PostgreSQL wire protocol
-#               via psycopg2. Key differences: double-quote identifiers
-#               SERIAL/UUID primary keys, native BOOLEAN, JSONB for
-#               indexable JSON, and RETURNING id on INSERT.
-# =============================================================================
-
-# =============================================================================
-# File        : dialects/yugabyte.py
 # Project     : mydborm � Lightweight ORM for MySQL and YugabyteDB
 # Author      : Atikrant Upadhye
 # Created     : 2026-06-15
