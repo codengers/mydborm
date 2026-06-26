@@ -477,14 +477,14 @@ class User(BaseModel):
 
 User.create_table()
 
-uid  = User.create(username="alice", password="hunter2", api_secret="sk_live_abc")
+uid  = User.create(username="alice", password="hunter2", api_secret="my-api-secret-value")
 user = User.get(id=uid)
 
 # Password: verify only — never decryptable
 ok = PasswordField.verify("hunter2", user["password"])   # True
 
 # Encrypted field: decrypt when needed
-plain = EncryptedField.decrypt(user["api_secret"], secret_key=KEY)   # sk_live_abc
+plain = EncryptedField.decrypt(user["api_secret"], secret_key=KEY)   # my-api-secret-value
 ```
 
 ---
