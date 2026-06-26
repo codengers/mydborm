@@ -160,6 +160,7 @@ class QueryBuilder:
         self._group_by  = []
         self._having    = []
         self._columns   = []
+        self._or_wheres = []
 
     # ── Column projection ─────────────────────────────────────────── #
 
@@ -219,6 +220,56 @@ class QueryBuilder:
         else:
             clause = f"{col} {op} %s"
             self._wheres.append((clause, [value]))
+
+        return self
+
+    def or_where(self, field_op: str, value=None) -> "QueryBuilder":
+        """
+        Add an OR condition.
+
+        OR conditions are grouped together and ANDed with any WHERE conditions:
+            WHERE <and_conditions> AND (<or1> OR <or2> OR ...)
+
+        Supports the same operators as .where():
+            .or_where("status", "pending")
+            .or_where("status__in", ["retry", "queued"])
+            .or_where("deleted_at__null", True)
+
+        Example:
+            Order.query()
+                 .where("user_id", 5)
+                 .or_where("status", "pending")
+                 .or_where("status", "retry")
+                 .all()
+            # → SELECT * FROM orders
+            #   WHERE user_id = 5 AND (status = 'pending' OR status = 'retry')
+        """
+        op  = "="
+        col = field_op
+        for suffix, operator in self.OPERATORS.items():
+            if field_op.endswith(suffix):
+                col = field_op[: -len(suffix)]
+                op  = operator
+                break
+
+        if op == "IN":
+            if isinstance(value, str) and value.startswith("(SELECT"):
+                self._or_wheres.append((f"{col} IN {value}", []))
+            elif not hasattr(value, "__iter__") or isinstance(value, str):
+                raise ValueError(
+                    f".or_where('{field_op}', value): "
+                    f"__in requires a list or tuple."
+                )
+            else:
+                placeholders = ", ".join(["%s"] * len(value))
+                self._or_wheres.append(
+                    (f"{col} IN ({placeholders})", list(value))
+                )
+        elif op == "IS":
+            null_str = "NULL" if value else "NOT NULL"
+            self._or_wheres.append((f"{col} IS {null_str}", []))
+        else:
+            self._or_wheres.append((f"{col} {op} %s", [value]))
 
         return self
 
@@ -398,11 +449,19 @@ class QueryBuilder:
         for join_clause in self._joins:
             sql += " " + join_clause
 
-        # WHERE
-        where_clauses = [w[0] for w in self._wheres if w[0]]
-        if where_clauses:
-            sql += " WHERE " + " AND ".join(where_clauses)
-        for clause, vals in self._wheres:
+        # WHERE — AND conditions + OR group
+        and_clauses = [w[0] for w in self._wheres if w[0]]
+        or_clauses  = [w[0] for w in self._or_wheres]
+        conditions  = []
+        if and_clauses:
+            conditions.append(" AND ".join(and_clauses))
+        if or_clauses:
+            conditions.append("(" + " OR ".join(or_clauses) + ")")
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        for _, vals in self._wheres:
+            params.extend(vals)
+        for _, vals in self._or_wheres:
             params.extend(vals)
 
         # GROUP BY
@@ -567,11 +626,19 @@ class QueryBuilder:
         params  = list(kwargs.values())
         sql     = f"UPDATE {table} SET {set_sql}"
 
-        if self._wheres:
-            clauses = [w[0] for w in self._wheres]
-            sql    += " WHERE " + " AND ".join(clauses)
-            for _, vals in self._wheres:
-                params.extend(vals)
+        and_clauses = [w[0] for w in self._wheres]
+        or_clauses  = [w[0] for w in self._or_wheres]
+        conditions  = []
+        if and_clauses:
+            conditions.append(" AND ".join(and_clauses))
+        if or_clauses:
+            conditions.append("(" + " OR ".join(or_clauses) + ")")
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        for _, vals in self._wheres:
+            params.extend(vals)
+        for _, vals in self._or_wheres:
+            params.extend(vals)
 
         with db.connect() as conn:
             cur = conn.cursor()
@@ -584,11 +651,19 @@ class QueryBuilder:
         params = []
         sql    = f"DELETE FROM {table}"
 
-        if self._wheres:
-            clauses = [w[0] for w in self._wheres]
-            sql    += " WHERE " + " AND ".join(clauses)
-            for _, vals in self._wheres:
-                params.extend(vals)
+        and_clauses = [w[0] for w in self._wheres]
+        or_clauses  = [w[0] for w in self._or_wheres]
+        conditions  = []
+        if and_clauses:
+            conditions.append(" AND ".join(and_clauses))
+        if or_clauses:
+            conditions.append("(" + " OR ".join(or_clauses) + ")")
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        for _, vals in self._wheres:
+            params.extend(vals)
+        for _, vals in self._or_wheres:
+            params.extend(vals)
 
         with db.connect() as conn:
             cur = conn.cursor()
