@@ -229,6 +229,79 @@ def test_max():
 # ------------------------------------------------------------------ #
 
 # ------------------------------------------------------------------ #
+#  where_raw() / or_where_raw()                                        #
+# ------------------------------------------------------------------ #
+
+def test_where_raw_simple():
+    # Apple costs 1.50 — ROUND(price, 0) = 2 matches Apple only
+    rows = Item.query().where_raw("price < 1.0").all()
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Banana"
+
+
+def test_where_raw_with_param():
+    rows = Item.query().where_raw("price > %s", 4.0).all()
+    assert all(r["price"] > 4.0 for r in rows)
+    assert len(rows) == 2   # Date (5.00) and Elderberry (8.00)
+
+
+def test_where_raw_multiple_params():
+    rows = Item.query().where_raw("price >= %s AND price <= %s", 1.0, 5.0).all()
+    assert all(1.0 <= r["price"] <= 5.0 for r in rows)
+
+
+def test_where_raw_combined_with_where():
+    rows = (Item.query()
+               .where("active", True)
+               .where_raw("price < %s", 2.0)
+               .all())
+    assert all(r["active"] and r["price"] < 2.0 for r in rows)
+
+
+def test_where_raw_no_params():
+    rows = Item.query().where_raw("stock > 50").all()
+    assert all(r["stock"] > 50 for r in rows)
+
+
+def test_where_raw_update():
+    updated = Item.query().where_raw("price > %s", 7.0).update(stock=0)
+    assert updated == 1   # only Elderberry (8.00)
+    assert Item.query().where("stock", 0).count() == 1
+
+
+def test_where_raw_delete():
+    deleted = Item.query().where_raw("price < %s", 1.0).delete()
+    assert deleted == 1   # Banana (0.75)
+    assert Item.query().count() == 4
+
+
+def test_or_where_raw_basic():
+    rows = (Item.query()
+               .or_where_raw("price < %s", 1.0)
+               .or_where_raw("price > %s", 7.0)
+               .all())
+    assert len(rows) == 2   # Banana (0.75) + Elderberry (8.00)
+
+
+def test_or_where_raw_combined_with_where():
+    rows = (Item.query()
+               .where("active", True)
+               .or_where_raw("price < %s", 1.0)
+               .or_where_raw("price > %s", 7.0)
+               .all())
+    # active=True AND (price<1 OR price>7)
+    # Banana: active=True, price=0.75 → matches
+    # Elderberry: active=False → excluded
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Banana"
+
+
+def test_or_where_raw_no_params():
+    rows = Item.query().or_where_raw("stock > 50").all()
+    assert all(r["stock"] > 50 for r in rows)
+
+
+# ------------------------------------------------------------------ #
 #  distinct()                                                          #
 # ------------------------------------------------------------------ #
 

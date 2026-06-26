@@ -237,6 +237,54 @@ class QueryBuilder:
 
         return self
 
+    def where_raw(self, sql: str, *params) -> "QueryBuilder":
+        """
+        Add a raw SQL AND condition — escape hatch for expressions that don't
+        fit the built-in operator syntax.
+
+        Args:
+            sql    : raw SQL fragment, use %s for parameter placeholders
+            params : positional values for each %s placeholder
+
+        Usage:
+            # Date functions
+            Order.query().where_raw("YEAR(created_at) = %s", 2024).all()
+
+            # JSON extraction (MySQL 5.7+)
+            User.query().where_raw("JSON_EXTRACT(meta, '$.role') = %s", "admin").all()
+
+            # Full-text search
+            Post.query().where_raw("MATCH(body) AGAINST(%s IN BOOLEAN MODE)", "+python").all()
+
+            # No parameters
+            Product.query().where_raw("price > cost * 1.2").all()
+
+            # Mix with standard where()
+            Order.query()
+                 .where("user_id", 5)
+                 .where_raw("DATEDIFF(NOW(), created_at) < %s", 30)
+                 .all()
+        """
+        self._wheres.append((sql, list(params)))
+        return self
+
+    def or_where_raw(self, sql: str, *params) -> "QueryBuilder":
+        """
+        Add a raw SQL OR condition.
+
+        Same as where_raw() but placed in the OR group:
+            WHERE <and_conditions> AND (<or1> OR <or2> OR ...)
+
+        Usage:
+            Order.query()
+                 .where("user_id", 5)
+                 .or_where_raw("YEAR(created_at) = %s", 2024)
+                 .or_where_raw("status = 'legacy'")
+                 .all()
+        """
+        self._or_wheres.append((sql, list(params)))
+        return self
+
     def or_where(self, field_op: str, value=None) -> "QueryBuilder":
         """
         Add an OR condition.
