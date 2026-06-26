@@ -229,6 +229,45 @@ def test_max():
 # ------------------------------------------------------------------ #
 
 # ------------------------------------------------------------------ #
+#  distinct()                                                          #
+# ------------------------------------------------------------------ #
+
+def test_distinct_all_rows_unique():
+    # Seed has 5 unique names — distinct should return 5
+    rows = Item.query().select("name").distinct().all()
+    assert len(rows) == 5
+
+
+def test_distinct_deduplicates():
+    # active has values True/False — distinct should return 2 rows
+    rows = Item.query().select("active").distinct().order_by("active").all()
+    assert len(rows) == 2
+
+
+def test_distinct_with_where():
+    rows = Item.query().select("active").distinct().where("active", True).all()
+    assert len(rows) == 1
+    assert rows[0]["active"] in (True, 1)
+
+
+def test_distinct_with_limit():
+    rows = Item.query().select("name").distinct().limit(3).all()
+    assert len(rows) == 3
+
+
+def test_distinct_count_unaffected():
+    # count() always uses COUNT(*) — distinct() does not change it
+    total = Item.query().select("active").distinct().count()
+    assert total == 5   # all rows, not distinct active values
+
+
+def test_distinct_does_not_affect_non_distinct_query():
+    q_normal   = Item.query().select("name").all()
+    q_distinct = Item.query().select("name").distinct().all()
+    assert len(q_normal) == len(q_distinct) == 5
+
+
+# ------------------------------------------------------------------ #
 #  or_where()                                                          #
 # ------------------------------------------------------------------ #
 

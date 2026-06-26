@@ -161,8 +161,22 @@ class QueryBuilder:
         self._having    = []
         self._columns   = []
         self._or_wheres = []
+        self._distinct  = False
 
     # ── Column projection ─────────────────────────────────────────── #
+
+    def distinct(self) -> "QueryBuilder":
+        """Add DISTINCT to the SELECT clause.
+
+        Example:
+            User.query().select("country").distinct().all()
+            # → SELECT DISTINCT country FROM users
+
+            User.query().distinct().count()
+            # → SELECT COUNT(DISTINCT *) — note: use select() to specify the field
+        """
+        self._distinct = True
+        return self
 
     def select(self, *columns: str) -> "QueryBuilder":
         """Restrict SELECT to specific columns.
@@ -434,15 +448,19 @@ class QueryBuilder:
 
     def _build_sql(self, select: str = "*") -> tuple:
         """Build SQL string and flat params list."""
-        table  = self._model._table
+        table           = self._model._table
+        # Remember whether caller passed the default wildcard (not an aggregate)
+        caller_default  = (select == "*")
 
         # Column projection takes priority (only when not overridden internally)
-        if self._columns and select == "*":
+        if self._columns and caller_default:
             select = ", ".join(self._columns)
-        elif self._group_by and select == "*":
+        elif self._group_by and caller_default:
             select = ", ".join(self._group_by)
 
-        sql    = "SELECT " + select + " FROM " + table
+        # DISTINCT only applies on normal SELECT, not on COUNT(*)/aggregates
+        keyword = "SELECT DISTINCT" if (self._distinct and caller_default) else "SELECT"
+        sql    = keyword + " " + select + " FROM " + table
         params = []
 
         # JOINs
