@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.0] - 2026-06-26
+
+### Added
+- `QueryBuilder.or_where()` — OR conditions grouped and ANDed with WHERE filters; supports all 9 operators
+- `QueryBuilder.distinct()` — `SELECT DISTINCT` support; unaffected by `count()` and aggregates
+
+---
+
 ## [1.7.0] - 2026-06-26
 
 ### Added
