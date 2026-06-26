@@ -16,9 +16,9 @@ Zero bloat. Declarative models. Full CRUD. Bulk ops. Async. Migrations. CLI incl
 |---|---|
 | Declarative models with 11+ field types | ✅ |
 | Full CRUD — create, get, all, filter, update, delete | ✅ |
-| QueryBuilder — where, operators, order, limit, offset, paginate | ✅ |
+| QueryBuilder — where, select, update, delete, order, limit, offset, paginate | ✅ |
 | JOIN support — inner, left, right | ✅ |
-| Aggregates — sum, avg, min, max, count | ✅ |
+| Aggregates — sum, avg, min, max, count, group_by, having | ✅ |
 | Relationships — has_many, belongs_to, many_to_many | ✅ |
 | Composite primary keys — `__pk__` | ✅ |
 | Index management — create, drop, list, `__indexes__` | ✅ |
@@ -37,7 +37,11 @@ Zero bloat. Declarative models. Full CRUD. Bulk ops. Async. Migrations. CLI incl
 | Custom exception hierarchy | ✅ |
 | Rich CLI — version, ping, tables, inspect, migrate, pool | ✅ |
 | CI — Python 3.9, 3.10, 3.11, 3.12 | ✅ |
-| 930 tests, 95% coverage | ✅ |
+| Mixins — SoftDeleteMixin, AuditMixin, TimestampMixin | ✅ |
+| Session / Unit of Work — identity map, change tracking, flush | ✅ |
+| Field validators — Email, URL, Regex, Range, MinLength, Choice | ✅ |
+| PasswordField (bcrypt) + EncryptedField (Fernet) | ✅ |
+| 950+ tests, 96% coverage | ✅ |
 
 ---
 
@@ -139,35 +143,174 @@ exists = User.exists(email="alice@example.com")
 
 ### 5. Query builder
 
+`QueryBuilder` provides a fully chainable, composable query API. All methods return `self` (except terminal methods), so they can be combined in any order.
+
+#### Filtering
+
 ```python
-# Chainable filters
+# Simple equality
+User.query().where("active", True).all()
+
+# Comparison operators
+User.query().where("id__gt", 5).all()          # id > 5
+User.query().where("price__lte", 100).all()    # price <= 100
+User.query().where("score__ne", 0).all()       # score != 0
+
+# Pattern match
+User.query().where("email__like", "%@gmail.com").all()
+
+# IN list
+User.query().where("id__in", [1, 2, 3]).all()
+
+# NULL check
+User.query().where("deleted_at__null", True).all()   # IS NULL
+User.query().where("deleted_at__null", False).all()  # IS NOT NULL
+
+# Chain multiple filters (AND)
 results = (User.query()
                .where("active", True)
                .where("username__like", "ali%")
-               .order_by("username")
-               .limit(10)
-               .offset(0)
+               .where("id__gt", 10)
                .all())
+```
 
-# Operators
-User.query().where("id__gt", 5).all()
-User.query().where("id__in", [1, 2, 3]).all()
-User.query().where("email__like", "%@example.com").all()
+#### Operator reference
 
-# Aggregates
-total = User.query().where("active", True).count()
-avg   = Order.query().avg("total")
-top5  = Order.query().order_by("total", desc=True).limit(5).all()
+| Suffix | SQL | Example |
+|---|---|---|
+| *(none)* | `=` | `.where("active", True)` |
+| `__gt` | `>` | `.where("age__gt", 18)` |
+| `__lt` | `<` | `.where("price__lt", 50)` |
+| `__gte` | `>=` | `.where("score__gte", 90)` |
+| `__lte` | `<=` | `.where("stock__lte", 5)` |
+| `__ne` | `!=` | `.where("status__ne", "banned")` |
+| `__like` | `LIKE` | `.where("name__like", "A%")` |
+| `__in` | `IN (…)` | `.where("id__in", [1,2,3])` |
+| `__null` | `IS NULL` / `IS NOT NULL` | `.where("deleted_at__null", True)` |
 
-# Pagination
-page = User.query().where("active", True).order_by("id").paginate(page=2, per_page=20)
+#### Column projection — `select()`
+
+Restrict which columns are fetched — useful for large tables or when you only need a subset of fields.
+
+```python
+# Fetch only id and username — avoids loading large columns
+rows = User.query().select("id", "username").all()
+
+# Combine with filters and ordering
+rows = (User.query()
+            .select("id", "email", "active")
+            .where("active", True)
+            .order_by("email")
+            .limit(50)
+            .all())
+
+# Works with paginate() too
+page = User.query().select("id", "username").paginate(page=1, per_page=20)
+
+# count() is always correct regardless of select()
+total = User.query().select("username").where("active", True).count()  # → N
+```
+
+#### Bulk update — `update()`
+
+Update all rows matching the current WHERE filters in a single query.
+
+```python
+# Deactivate all suspended users
+User.query().where("status", "suspended").update(active=False)
+
+# Update multiple columns at once
+Product.query().where("category", "clearance").update(discount=0.5, featured=False)
+
+# No WHERE → updates every row
+Item.query().update(stock=0)
+
+# Returns the number of affected rows
+count = Order.query().where("shipped", False).update(status="pending")
+print(f"{count} orders updated")
+
+# Chain with operators
+Order.query().where("total__lt", 10).update(flagged=True)
+```
+
+#### Ordering, limit, offset
+
+```python
+# Ascending (default)
+User.query().order_by("username").all()
+
+# Descending
+Order.query().order_by("total", desc=True).limit(10).all()
+
+# Skip + take
+User.query().offset(20).limit(10).all()
+```
+
+#### Terminal methods
+
+```python
+User.query().where("active", True).all()        # list of rows
+User.query().where("email", "a@b.com").first()  # first row or None
+User.query().where("active", True).count()      # int
+User.query().where("email", "a@b.com").exists() # bool
+User.query().where("active", False).delete()    # affected row count
+User.query().where("active", False).update(role="guest")  # affected row count
+```
+
+#### Aggregates
+
+```python
+total  = User.query().where("active", True).count()
+avg    = Order.query().avg("total")
+top5   = Order.query().order_by("total", desc=True).limit(5).all()
+revenue = Order.query().where("shipped", True).sum("total")
+min_p  = Product.query().min("price")
+max_p  = Product.query().max("price")
+```
+
+#### Group by + having
+
+```python
+# Count orders per user
+rows = (Order.query()
+             .group_by("user_id")
+             .having("COUNT(*) > 2")
+             .all())
+
+# Total revenue per status
+rows = (Order.query()
+             .select("status")
+             .group_by("status")
+             .having("SUM(total) > %s", 1000)
+             .all())
+```
+
+#### Pagination
+
+```python
+page = (User.query()
+            .where("active", True)
+            .order_by("id")
+            .paginate(page=2, per_page=20))
+# Returns:
 # {
-#   "data"    : [<list of rows>],
-#   "total"   : 57,
-#   "pages"   : 3,
-#   "page"    : 2,
-#   "per_page": 20,
+#   "data"    : [<ModelInstance>, ...],
+#   "total"   : 57,       # total matching rows
+#   "pages"   : 3,        # total pages
+#   "page"    : 2,        # current page
+#   "per_page": 20,       # rows per page
 # }
+
+# page < 1 is clamped to 1
+page = User.query().paginate(page=0)  # treated as page=1
+```
+
+#### Subqueries
+
+```python
+# Use one query's result inside another
+active_ids = User.query().where("active", True).subquery("id")
+orders = Order.query().where("user_id__in", active_ids).all()
 ```
 
 ---
@@ -475,20 +618,215 @@ User.delete(id=uid)
 
 ---
 
+### 18. Mixins
+
+Drop-in mixins that add common columns and behaviour to any model.
+
+#### TimestampMixin — automatic created_at / updated_at
+
+```python
+from mydborm import BaseModel, IntField, StrField
+from mydborm.mixins import TimestampMixin
+
+class Post(TimestampMixin, BaseModel):
+    __tablename__ = "posts"
+    id      = IntField(primary_key=True)
+    title   = StrField(max_length=200)
+
+Post.create_table()
+post = Post.create(title="Hello World")
+# post["created_at"] and post["updated_at"] set automatically
+```
+
+#### SoftDeleteMixin — logical deletion via deleted_at
+
+```python
+from mydborm.mixins import SoftDeleteMixin
+
+class User(SoftDeleteMixin, BaseModel):
+    __tablename__ = "users"
+    id       = IntField(primary_key=True)
+    username = StrField(max_length=100)
+
+User.create_table()
+user = User.create(username="alice")
+
+User.soft_delete(id=user["id"])      # sets deleted_at, row stays in DB
+User.restore(id=user["id"])          # clears deleted_at
+active = User.active().all()         # WHERE deleted_at IS NULL
+deleted = User.deleted().all()       # WHERE deleted_at IS NOT NULL
+User.hard_delete(id=user["id"])      # permanent DELETE
+```
+
+#### AuditMixin — track who created / updated each row
+
+```python
+from mydborm.mixins import AuditMixin
+
+class Document(AuditMixin, BaseModel):
+    __tablename__ = "documents"
+    id      = IntField(primary_key=True)
+    title   = StrField(max_length=200)
+
+Document.create_table()
+doc = Document.create(title="Spec", created_by="alice", updated_by="alice")
+Document.update({"updated_by": "bob"}, id=doc["id"])
+```
+
+---
+
+### 19. Session / Unit of Work
+
+`Session` implements an identity map and change tracker — load rows once, mutate them freely, then flush all changes in a single pass.
+
+```python
+from mydborm import Session
+
+# Basic usage — explicit flush
+s = Session()
+user = s.get(User, id=1)          # loads from DB, registers in identity map
+user["username"] = "alice_v2"     # tracked as dirty
+s.is_dirty(user)                  # → True
+s.dirty_fields(user)              # → ["username"]
+s.original_value(user, "username")# → "alice"
+s.flush()                         # UPDATE written to DB, marked clean
+
+# Add new records
+s.add(User, username="dave", email="dave@example.com")
+s.flush()                         # INSERT for all pending new records
+
+# Delete
+s.delete(user)
+s.flush()                         # DELETE executed
+
+# Rollback — discard all in-memory changes (no DB writes)
+user["username"] = "wrong_name"
+s.rollback()                      # reverts to "alice_v2"
+
+# Context manager — auto-flush on __exit__, rollback on exception
+with Session() as s:
+    user = s.get(User, id=1)
+    user["username"] = "context_user"
+# flush() called automatically on clean exit
+
+# Query within a session
+with Session() as s:
+    active_users = s.all(User)
+    inactive     = s.filter(User, active=False)
+
+# Helpers
+s.expunge(user)      # remove one object from the session
+s.expunge_all()      # remove all tracked objects
+s.close()            # alias for expunge_all
+s.stats()            # {"tracked": 3, "new": 1, "dirty": 2, "deleted": 0}
+```
+
+---
+
+### 20. Field validators
+
+Attach reusable validation rules to any field.
+
+```python
+from mydborm.fields import (
+    StrField, IntField,
+    ValidationRule, EmailValidator, UrlValidator,
+    RegexValidator, RangeValidator, MinLengthValidator, ChoiceValidator,
+)
+
+class Profile(BaseModel):
+    __tablename__ = "profiles"
+    id       = IntField(primary_key=True)
+    email    = StrField(max_length=255, validators=[EmailValidator()])
+    website  = StrField(max_length=500, validators=[UrlValidator()])
+    username = StrField(max_length=50,  validators=[
+                    MinLengthValidator(3),
+                    RegexValidator(r"^[a-z0-9_]+$", "lowercase alphanumeric only"),
+               ])
+    age      = IntField(validators=[RangeValidator(18, 120)])
+    role     = StrField(max_length=20, validators=[
+                    ChoiceValidator(["admin", "editor", "viewer"]),
+               ])
+```
+
+#### PasswordField — bcrypt hashing
+
+```python
+from mydborm.fields import PasswordField
+
+class User(BaseModel):
+    __tablename__ = "users"
+    id       = IntField(primary_key=True)
+    password = PasswordField(rounds=12)
+
+uid  = User.create(username="alice", password="secret123")
+# stored as bcrypt hash
+
+user = User.get(id=uid)
+PasswordField().verify("secret123", user["password"])   # → True
+PasswordField().needs_rehash(user["password"])           # → False
+hashed = PasswordField.hash("newpassword")
+```
+
+#### EncryptedField — Fernet symmetric encryption
+
+```python
+from mydborm.fields import EncryptedField
+
+key = EncryptedField.generate_key()  # generate once, store securely
+
+class Secret(BaseModel):
+    __tablename__ = "secrets"
+    id   = IntField(primary_key=True)
+    data = EncryptedField(secret_key=key)
+
+Secret.create(data="top secret value")  # stored encrypted
+row = Secret.get(id=1)
+plain = Secret._fields["data"].decrypt_value(row["data"])  # → "top secret value"
+```
+
+---
+
 ## Field types
 
-| Field | MySQL | YugabyteDB |
+### Core fields
+
+| Field | MySQL | PostgreSQL / YugabyteDB |
 |---|---|---|
 | `IntField` | `INT` | `INTEGER` |
 | `StrField(max_length)` | `VARCHAR(n)` | `VARCHAR(n)` |
 | `TextField` | `TEXT` | `TEXT` |
 | `BoolField` | `TINYINT(1)` | `BOOLEAN` |
 | `FloatField` | `FLOAT` | `FLOAT` |
-| `DecimalField(p, s)` | `DECIMAL(p,s)` | `DECIMAL(p,s)` |
+| `DecimalField(precision, scale)` | `DECIMAL(p,s)` | `DECIMAL(p,s)` |
 | `DateField` | `DATE` | `DATE` |
 | `DateTimeField` | `DATETIME` | `TIMESTAMP` |
 | `JSONField` | `JSON` | `JSONB` |
 | `ForeignKeyField(to)` | `INT` | `INTEGER` |
+
+### Extended fields
+
+| Field | MySQL | Notes |
+|---|---|---|
+| `TinyIntField` | `TINYINT` | −128 to 127 |
+| `SmallIntField` | `SMALLINT` | −32768 to 32767 |
+| `BigIntField` | `BIGINT` | 64-bit integer |
+| `UnsignedBigIntField` | `BIGINT UNSIGNED` | 0 to 2⁶⁴−1 |
+| `DoubleField` | `DOUBLE` | 64-bit float |
+| `BitField` | `BIT(n)` | bit mask |
+| `CharField(max_length)` | `CHAR(n)` | fixed-length string |
+| `TinyTextField` | `TINYTEXT` | up to 255 bytes |
+| `MediumTextField` | `MEDIUMTEXT` | up to 16 MB |
+| `LongTextField` | `LONGTEXT` | up to 4 GB |
+| `BinaryField(length)` | `BINARY(n)` | fixed binary; `BYTEA` on PG |
+| `VarBinaryField(max_length)` | `VARBINARY(n)` | variable binary; `BYTEA` on PG |
+| `BlobField` | `BLOB` | binary large object |
+| `TimeField` | `TIME` | HH:MM:SS |
+| `TimestampField` | `TIMESTAMP` | Unix timestamp |
+| `EnumField(choices)` | `ENUM(...)` | restricted string set |
+| `SetField(choices)` | `SET(...)` | multi-value set |
+| `PasswordField` | `VARCHAR(255)` | bcrypt hash |
+| `EncryptedField` | `TEXT` | Fernet-encrypted |
 
 ---
 
@@ -589,11 +927,12 @@ pytest
 ```
 mydborm/
 ├── mydborm/
-│   ├── __init__.py       # Public API
-│   ├── db.py             # Connection manager + pooling + transactions
-│   ├── fields.py         # 11+ field types with dialect-aware SQL
+│   ├── __init__.py       # Public API surface
+│   ├── db.py             # Connection manager, pooling, transactions
+│   ├── fields.py         # 30+ field types with validators + dialect SQL
 │   ├── model.py          # BaseModel + QueryBuilder + relationships
 │   ├── bulk.py           # Chunked bulk ops + BulkResult + retry
+│   ├── session.py        # Session — identity map + unit of work
 │   ├── async_db.py       # Async ORM via aiomysql/aiopg
 │   ├── migrations.py     # Schema migration engine
 │   ├── mixins.py         # SoftDeleteMixin, AuditMixin, TimestampMixin
@@ -603,8 +942,7 @@ mydborm/
 │       ├── mysql.py      # MySQL SQL generation
 │       ├── postgres.py   # PostgreSQL SQL generation
 │       └── yugabyte.py   # YugabyteDB SQL generation
-├── tests/                # 930 tests, 95% coverage
-├── examples/             # Usage examples
+├── tests/                # 950+ tests, 96% coverage
 └── pyproject.toml
 ```
 
