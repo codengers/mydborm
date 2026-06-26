@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.9.0] - 2026-06-26
+
+### Added
+- `QueryBuilder.where_raw(sql, *params)` — raw SQL AND condition escape hatch; params safely parameterized
+- `QueryBuilder.or_where_raw(sql, *params)` — raw SQL OR condition; grouped and ANDed with WHERE filters
+- QueryBuilder reference section added to README — full operator table, all methods, examples
+
+---
+
 ## [1.8.0] - 2026-06-26
 
 ### Added
