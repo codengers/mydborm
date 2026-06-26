@@ -229,6 +229,43 @@ def test_max():
 # ------------------------------------------------------------------ #
 
 # ------------------------------------------------------------------ #
+#  select() — column projection                                        #
+# ------------------------------------------------------------------ #
+
+def test_select_single_column():
+    rows = Item.query().select("name").all()
+    assert len(rows) == 5
+    assert "name"  in rows[0]
+    assert "price" not in rows[0]
+
+
+def test_select_multiple_columns():
+    rows = Item.query().select("name", "price").all()
+    assert len(rows) == 5
+    assert "name"   in rows[0]
+    assert "price"  in rows[0]
+    assert "active" not in rows[0]
+
+
+def test_select_with_where():
+    rows = Item.query().select("name").where("active", True).all()
+    assert len(rows) == 3
+    assert all("price" not in r for r in rows)
+
+
+def test_select_with_order_and_limit():
+    rows = Item.query().select("name", "price").order_by("price").limit(2).all()
+    assert len(rows) == 2
+    assert "name" in rows[0]
+
+
+def test_select_does_not_affect_count():
+    # count() always uses COUNT(*) — select() should not break it
+    total = Item.query().select("name").where("active", True).count()
+    assert total == 3
+
+
+# ------------------------------------------------------------------ #
 #  update() via query                                                  #
 # ------------------------------------------------------------------ #
 

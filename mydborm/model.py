@@ -158,7 +158,20 @@ class QueryBuilder:
         self._joins     = []
         self._includes  = []
         self._group_by  = []
-        self._having    = []        
+        self._having    = []
+        self._columns   = []
+
+    # ── Column projection ─────────────────────────────────────────── #
+
+    def select(self, *columns: str) -> "QueryBuilder":
+        """Restrict SELECT to specific columns.
+
+        Example:
+            User.query().select("id", "name").where("active", True).all()
+            # → SELECT id, name FROM users WHERE active = 1
+        """
+        self._columns = list(columns)
+        return self
 
     # ── Filters ──────────────────────────────────────────────────── #
 
@@ -372,8 +385,10 @@ class QueryBuilder:
         """Build SQL string and flat params list."""
         table  = self._model._table
 
-        # When GROUP BY is active, select grouped fields + aggregates
-        if self._group_by and select == "*":
+        # Column projection takes priority (only when not overridden internally)
+        if self._columns and select == "*":
+            select = ", ".join(self._columns)
+        elif self._group_by and select == "*":
             select = ", ".join(self._group_by)
 
         sql    = "SELECT " + select + " FROM " + table
