@@ -97,6 +97,7 @@ from .migrations import (
     list_migration_files,
 )
 from .mixins import SoftDeleteMixin, AuditMixin, TimestampMixin
+from .migrate import MigrationEngine, MigrationResult, TypeMapper
 
 __version__ = "1.9.0"
 __author__  = "Codengers"
@@ -177,5 +178,8 @@ __all__ = [
     "SoftDeleteMixin",
     "AuditMixin",
     "TimestampMixin",
+    "MigrationEngine",
+    "MigrationResult",
+    "TypeMapper",
 ]
 

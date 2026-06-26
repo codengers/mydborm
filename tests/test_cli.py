@@ -564,3 +564,239 @@ def test_inspect_bad_credentials_fails():
     ])
     _db.close()
     assert result.exit_code != 0
+
+
+# ------------------------------------------------------------------ #
+#  migrate-db                                                          #
+# ------------------------------------------------------------------ #
+
+MIGRATE_DB_OPTS = [
+    "--source-dialect",  "mysql",
+    "--source-host",     "127.0.0.1",
+    "--source-port",     "3307",
+    "--source-user",     "root",
+    "--source-password", os.environ.get("DB_PASSWORD", "root"),
+    "--source-db",       "testdb_source",
+    "--target-dialect",  "mysql",
+    "--target-host",     "127.0.0.1",
+    "--target-port",     "3307",
+    "--target-user",     "root",
+    "--target-password", os.environ.get("DB_PASSWORD", "root"),
+    "--target-db",       "testdb_target",
+]
+
+
+def _setup_migrate_db_table():
+    from mydborm import db as _db
+    _db.configure(dialect="mysql", host="127.0.0.1", port=3307,
+                  user="root", password=os.environ.get("DB_PASSWORD", "root"))
+    with _db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute("CREATE DATABASE IF NOT EXISTS testdb_source")
+        cur.execute("CREATE DATABASE IF NOT EXISTS testdb_target")
+    _db.close()
+
+    _db.configure(dialect="mysql", host="127.0.0.1", port=3307,
+                  user="root", password=os.environ.get("DB_PASSWORD", "root"),
+                  database="testdb_source")
+    with _db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute("DROP TABLE IF EXISTS cli_mig_users")
+        cur.execute("""
+            CREATE TABLE cli_mig_users (
+              id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+              username VARCHAR(100) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+        cur.executemany(
+            "INSERT INTO cli_mig_users (username) VALUES (%s)",
+            [(f"user{i}",) for i in range(1, 4)],
+        )
+    _db.close()
+
+
+def _cleanup_migrate_db_tables():
+    from mydborm import db as _db
+    _db.configure(dialect="mysql", host="127.0.0.1", port=3307,
+                  user="root", password=os.environ.get("DB_PASSWORD", "root"),
+                  database="testdb_source")
+    with _db.connect() as conn:
+        conn.cursor().execute("DROP TABLE IF EXISTS cli_mig_users")
+    _db.close()
+
+    _db.configure(dialect="mysql", host="127.0.0.1", port=3307,
+                  user="root", password=os.environ.get("DB_PASSWORD", "root"),
+                  database="testdb_target")
+    with _db.connect() as conn:
+        conn.cursor().execute("DROP TABLE IF EXISTS cli_mig_users")
+    _db.close()
+
+
+def test_migrate_db_dry_run_shows_preview_without_writing():
+    _setup_migrate_db_table()
+    try:
+        result = runner.invoke(cli, [
+            "migrate-db"
+        ] + MIGRATE_DB_OPTS + ["--tables", "cli_mig_users", "--dry-run"])
+        assert result.exit_code == 0
+        assert "Dry run" in result.output
+        assert "cli_mig_users" in result.output
+
+        from mydborm import db as _db
+        _db.configure(dialect="mysql", host="127.0.0.1", port=3307,
+                      user="root", password=os.environ.get("DB_PASSWORD", "root"),
+                      database="testdb_target")
+        assert _db.table_exists("cli_mig_users") is False
+        _db.close()
+    finally:
+        _cleanup_migrate_db_tables()
+
+
+def test_migrate_db_run_migrates_table():
+    _setup_migrate_db_table()
+    try:
+        result = runner.invoke(cli, [
+            "migrate-db"
+        ] + MIGRATE_DB_OPTS + ["--tables", "cli_mig_users"])
+        assert result.exit_code == 0
+        assert "Migrating" in result.output
+        assert "Done" in result.output
+        assert "Status            : SUCCESS" in result.output
+
+        from mydborm import db as _db
+        _db.configure(dialect="mysql", host="127.0.0.1", port=3307,
+                      user="root", password=os.environ.get("DB_PASSWORD", "root"),
+                      database="testdb_target")
+        rows = _db.fetchall("SELECT COUNT(*) AS cnt FROM cli_mig_users")
+        assert rows[0]["cnt"] == 3
+        _db.close()
+    finally:
+        _cleanup_migrate_db_tables()
+
+
+def test_migrate_db_skips_table_with_existing_data():
+    _setup_migrate_db_table()
+    try:
+        from mydborm import db as _db
+        _db.configure(dialect="mysql", host="127.0.0.1", port=3307,
+                      user="root", password=os.environ.get("DB_PASSWORD", "root"),
+                      database="testdb_target")
+        with _db.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE cli_mig_users (
+                  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                  username VARCHAR(100) NOT NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """)
+            cur.execute("INSERT INTO cli_mig_users (username) VALUES ('existing')")
+        _db.close()
+
+        result = runner.invoke(cli, [
+            "migrate-db"
+        ] + MIGRATE_DB_OPTS + ["--tables", "cli_mig_users"])
+        assert result.exit_code == 0
+        assert "Skipped" in result.output
+    finally:
+        _cleanup_migrate_db_tables()
+
+
+def test_migrate_db_bad_credentials_fails():
+    result = runner.invoke(cli, [
+        "migrate-db",
+        "--source-dialect",  "mysql",
+        "--source-host",     "127.0.0.1",
+        "--source-port",     "3307",
+        "--source-user",     "wrong_user_xyz",
+        "--source-password", "wrong_pass_xyz",
+        "--source-db",       "testdb",
+        "--target-dialect",  "mysql",
+        "--target-host",     "127.0.0.1",
+        "--target-port",     "3307",
+        "--target-user",     "root",
+        "--target-password", os.environ.get("DB_PASSWORD", "root"),
+        "--target-db",       "testdb",
+    ])
+    assert result.exit_code != 0
+
+
+def test_migrate_db_no_tables_found():
+    from mydborm import db as _db
+    _db.configure(dialect="mysql", host="127.0.0.1", port=3307,
+                  user="root", password=os.environ.get("DB_PASSWORD", "root"))
+    with _db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute("CREATE DATABASE IF NOT EXISTS testdb_empty_src")
+        cur.execute("CREATE DATABASE IF NOT EXISTS testdb_empty_tgt")
+    _db.close()
+
+    result = runner.invoke(cli, [
+        "migrate-db",
+        "--source-dialect",  "mysql",
+        "--source-host",     "127.0.0.1",
+        "--source-port",     "3307",
+        "--source-user",     "root",
+        "--source-password", os.environ.get("DB_PASSWORD", "root"),
+        "--source-db",       "testdb_empty_src",
+        "--target-dialect",  "mysql",
+        "--target-host",     "127.0.0.1",
+        "--target-port",     "3307",
+        "--target-user",     "root",
+        "--target-password", os.environ.get("DB_PASSWORD", "root"),
+        "--target-db",       "testdb_empty_tgt",
+    ])
+    assert result.exit_code == 0
+    assert "No tables found" in result.output
+
+
+def test_migrate_db_run_failure_exits_nonzero():
+    _setup_migrate_db_table()
+    try:
+        result = runner.invoke(cli, [
+            "migrate-db"
+        ] + MIGRATE_DB_OPTS + ["--tables", "cli_mig_users,does_not_exist_xyz"])
+        assert result.exit_code == 1
+        assert "Failed" in result.output
+        assert "Status            : FAILED" in result.output
+    finally:
+        _cleanup_migrate_db_tables()
+
+
+def test_migrate_db_dry_run_shows_unmapped_type_warning():
+    from mydborm import db as _db
+    _db.configure(dialect="mysql", host="127.0.0.1", port=3307,
+                  user="root", password=os.environ.get("DB_PASSWORD", "root"))
+    with _db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute("CREATE DATABASE IF NOT EXISTS testdb_source")
+        cur.execute("CREATE DATABASE IF NOT EXISTS testdb_target")
+    _db.close()
+
+    _db.configure(dialect="mysql", host="127.0.0.1", port=3307,
+                  user="root", password=os.environ.get("DB_PASSWORD", "root"),
+                  database="testdb_source")
+    with _db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute("DROP TABLE IF EXISTS cli_mig_unmapped")
+        cur.execute("""
+            CREATE TABLE cli_mig_unmapped (
+              id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+              grad_year YEAR NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """)
+    _db.close()
+
+    try:
+        result = runner.invoke(cli, [
+            "migrate-db"
+        ] + MIGRATE_DB_OPTS + ["--tables", "cli_mig_unmapped", "--dry-run"])
+        assert result.exit_code == 0
+        assert "Warnings" in result.output
+        assert "TEXT fallback" in result.output
+    finally:
+        _db.configure(dialect="mysql", host="127.0.0.1", port=3307,
+                      user="root", password=os.environ.get("DB_PASSWORD", "root"),
+                      database="testdb_source")
+        with _db.connect() as conn:
+            conn.cursor().execute("DROP TABLE IF EXISTS cli_mig_unmapped")
+        _db.close()

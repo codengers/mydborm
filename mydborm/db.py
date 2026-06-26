@@ -33,9 +33,6 @@ import threading
 from contextlib import contextmanager
 from urllib.parse import urlparse
 
-# Thread-local storage — one connection per thread
-_local = threading.local()
-
 SUPPORTED_DIALECTS = ("mysql", "yugabyte", "postgres", "postgresql")
 
 
@@ -89,6 +86,10 @@ class ConnectionManager:
     def __init__(self):
         self._config:   dict = {}
         self._encoding: str  = "utf-8"
+        # Per-instance thread-local connection storage — lets multiple
+        # ConnectionManager instances (e.g. migration source + target)
+        # hold independent connections within the same thread.
+        self._local = threading.local()
 
     # ------------------------------------------------------------------ #
     #  Configuration                                                        #
@@ -203,10 +204,10 @@ class ConnectionManager:
             )
 
         # Reuse existing thread-local connection
-        if not getattr(_local, "conn", None):
-            _local.conn = self._make_connection()
+        if not getattr(self._local, "conn", None):
+            self._local.conn = self._make_connection()
 
-        conn = _local.conn
+        conn = self._local.conn
         try:
             yield conn
             conn.commit()
@@ -216,12 +217,12 @@ class ConnectionManager:
 
     def close(self):
         """Close the current thread's connection."""
-        conn = getattr(_local, "conn", None)
+        conn = getattr(self._local, "conn", None)
         if conn:
             try:
                 conn.close()
             finally:
-                _local.conn = None
+                self._local.conn = None
 
     # ------------------------------------------------------------------ #
     #  Raw SQL                                                           #
@@ -326,10 +327,10 @@ class ConnectionManager:
                 "Call db.configure(...) or db.from_env() first."
             )
 
-        if not getattr(_local, "conn", None):
-            _local.conn = self._make_connection()
+        if not getattr(self._local, "conn", None):
+            self._local.conn = self._make_connection()
 
-        conn = _local.conn
+        conn = self._local.conn
 
         # Disable auto-commit for explicit transaction
         if self.dialect == "mysql":
@@ -361,8 +362,8 @@ class ConnectionManager:
                 "Database not configured.\n"
                 "Call db.configure(...) or db.from_env() first."
             )
-        if getattr(_local, "conn", None):
-            cur = _local.conn.cursor()
+        if getattr(self._local, "conn", None):
+            cur = self._local.conn.cursor()
             cur.execute(sql, params or [])
             return cur.rowcount
         with self.connect() as conn:
@@ -411,7 +412,7 @@ class ConnectionManager:
             status = db.pool_status()
             print(status)
         """
-        conn = getattr(_local, "conn", None)
+        conn = getattr(self._local, "conn", None)
         return {
             "dialect":      self.dialect,
             "host":         self._config.get("host"),
@@ -478,12 +479,12 @@ class ConnectionManager:
         import uuid
         sp_name = name or f"sp_{uuid.uuid4().hex[:8]}"
 
-        if not getattr(_local, "conn", None):
+        if not getattr(self._local, "conn", None):
             raise RuntimeError(
                 "savepoint() must be used inside a transaction()."
             )
 
-        conn = _local.conn
+        conn = self._local.conn
         try:
             cur = conn.cursor()
             cur.execute(f"SAVEPOINT {sp_name}")
@@ -512,7 +513,7 @@ class ConnectionManager:
                     User.create(username="bob")
                     # if this fails, only bob rolls back
         """
-        if getattr(_local, "conn", None):
+        if getattr(self._local, "conn", None):
             # Already in a transaction — use savepoint
             with self.savepoint():
                 yield
@@ -540,10 +541,10 @@ class ConnectionManager:
 
         The tx object is the connection — use db.execute() inside.
         """
-        if not getattr(_local, "conn", None):
-            _local.conn = self._make_connection()
+        if not getattr(self._local, "conn", None):
+            self._local.conn = self._make_connection()
 
-        conn = _local.conn
+        conn = self._local.conn
         if self.dialect == "mysql":
             conn.autocommit = False
 
