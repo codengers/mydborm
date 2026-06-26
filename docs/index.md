@@ -4,11 +4,25 @@
 [![Python](https://img.shields.io/pypi/pyversions/mydborm)](https://pypi.org/project/mydborm/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://github.com/codengers/mydborm/actions/workflows/ci.yml/badge.svg)](https://github.com/codengers/mydborm/actions)
-[![Coverage](https://img.shields.io/badge/coverage-88%25-brightgreen)](https://github.com/codengers/mydborm)
+[![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen)](https://github.com/codengers/mydborm)
+[![PyPI Downloads](https://img.shields.io/pypi/dm/mydborm)](https://pypi.org/project/mydborm/)
 
-**mydborm** is a production-grade lightweight Python ORM for **MySQL 8+** and **YugabyteDB (YSQL)**.
+> **Lightweight Python ORM for MySQL and YugabyteDB.**
+> Ship database-backed apps and data pipelines in minutes — not hours.
+
+**mydborm** is a production-grade lightweight Python ORM for **MySQL 8+**, **PostgreSQL**, and **YugabyteDB (YSQL)**.
 
 Zero bloat. Declarative models. Full CRUD. 29 field types. Bulk ops. Async. Migrations. Security. CLI.
+
+**Key features:**
+
+- **Lightweight & fast** — 47 KB, two runtime dependencies, sub-millisecond query overhead
+- **Native Distributed SQL** — purpose-built dialect for YugabyteDB; same model code runs on MySQL dev or distributed YugabyteDB prod
+- **29 field types** — from `TinyIntField` to `EncryptedField` (AES-128) and `PasswordField` (bcrypt)
+- **Bulk operations** — chunked `bulk_create / bulk_update / bulk_delete` with retry and progress callbacks
+- **Mixins** — `SoftDeleteMixin`, `AuditMixin`, `TimestampMixin` in one line
+- **Async support** — `AsyncBaseModel` via `aiomysql` and `aiopg` for FastAPI
+- **QueryBuilder** — `select()`, `update()`, `paginate()`, `group_by()`, `having()`, subqueries
 
 ---
 
