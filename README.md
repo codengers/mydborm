@@ -38,6 +38,7 @@ SQLAlchemy is powerful — and complex. Peewee is simple — but not distributed
 - **Intuitive syntax** — one Python class = one table. No metaclass magic to learn, no session factories, no engine strings.
 - **29 field types** — covers everything from `TinyIntField` to `EncryptedField` (AES-128) and `PasswordField` (bcrypt).
 - **Bulk operations** — chunked `bulk_create / bulk_update / bulk_delete` with retry, exponential backoff, and progress callbacks. Built for data pipelines.
+- **Rich QueryBuilder** — `where()`, `or_where()`, `select()`, `distinct()`, `update()`, `delete()`, `paginate()`, `group_by()`, `having()`, joins, subqueries.
 - **Mixins** — `SoftDeleteMixin`, `AuditMixin`, `TimestampMixin` drop into any model in one line.
 - **Lifecycle hooks** — `before_create`, `after_create`, `before_update`, `after_update`, `before_delete`, `after_delete` with zero registration ceremony.
 - **Async support** — `AsyncBaseModel` via `aiomysql` and `aiopg` for FastAPI and async microservices.
@@ -311,6 +312,166 @@ Post.soft_delete(id=1)            # sets deleted_at — row hidden from .all()
 Post.restore(id=1)                # clears deleted_at — row visible again
 Post.purge(id=1)                  # permanent delete
 ```
+
+---
+
+## QueryBuilder Reference
+
+`QueryBuilder` is returned by `Model.query()` and provides a fully chainable, composable query API. Every method returns `self` so they can be combined in any order before calling a terminal method.
+
+### Filtering — `where()` and `or_where()`
+
+```python
+# AND conditions — all where() calls are joined with AND
+Product.query().where("in_stock", True).where("price__lte", 50.0).all()
+# → WHERE in_stock = 1 AND price <= 50.0
+
+# OR conditions — or_where() calls are grouped and ANDed with the WHERE block
+Order.query().or_where("status", "pending").or_where("status", "retry").all()
+# → WHERE (status = 'pending' OR status = 'retry')
+
+# AND + OR combined
+Order.query()
+     .where("user_id", 5)
+     .or_where("status", "pending")
+     .or_where("status", "retry")
+     .all()
+# → WHERE user_id = 5 AND (status = 'pending' OR status = 'retry')
+
+# or_where() supports all the same operators as where()
+Item.query().or_where("price__lt", 1.0).or_where("price__gt", 99.0).all()
+Item.query().or_where("name__in", ["Apple", "Banana"]).all()
+Item.query().or_where("deleted_at__null", True).all()
+```
+
+### Column projection — `select()`
+
+```python
+# Fetch only specific columns — avoids loading large TEXT/BLOB columns
+rows = User.query().select("id", "username").where("active", True).all()
+
+# Works with ordering, limit, and paginate
+page = (Product.query()
+               .select("id", "name", "price")
+               .where("in_stock", True)
+               .order_by("price")
+               .paginate(page=1, per_page=20))
+
+# count() is always COUNT(*) regardless of select()
+total = User.query().select("username").count()  # counts all rows
+```
+
+### Deduplication — `distinct()`
+
+```python
+# SELECT DISTINCT — remove duplicate rows
+User.query().select("country").distinct().all()
+# → SELECT DISTINCT country FROM users
+
+# Combine with filters and ordering
+User.query().select("role").distinct().where("active", True).order_by("role").all()
+
+# distinct() does not affect count() — use group_by for distinct counts
+Item.query().select("status").distinct().count()  # still COUNT(*) of all rows
+```
+
+### Bulk update — `update()`
+
+```python
+# Update all matching rows — returns affected row count
+count = Order.query().where("status", "pending").update(status="processing")
+
+# OR conditions work too
+Item.query().or_where("name", "Cherry").or_where("name", "Elderberry").update(stock=0)
+
+# No WHERE → updates every row in the table
+Product.query().update(featured=False)
+```
+
+### Bulk delete — `delete()`
+
+```python
+# Delete all matching rows — returns deleted row count
+count = Order.query().where("status__ne", "shipped").delete()
+
+# Combine with OR
+Item.query().or_where("stock", 0).or_where("in_stock", False).delete()
+```
+
+### Pagination — `paginate()`
+
+```python
+page = (Product.query()
+               .where("in_stock", True)
+               .order_by("price")
+               .paginate(page=2, per_page=20))
+# Returns:
+# {
+#   "data"    : [<ModelInstance>, ...],   # rows for this page
+#   "total"   : 57,                        # total matching rows
+#   "pages"   : 3,                         # total pages
+#   "page"    : 2,                         # current page (clamped to 1 if < 1)
+#   "per_page": 20,                        # rows per page
+# }
+```
+
+### Aggregates
+
+```python
+Product.query().count()                            # total rows
+Product.query().where("in_stock", True).count()   # filtered count
+Product.query().sum("price")
+Product.query().avg("price")
+Product.query().min("price")
+Product.query().max("price")
+```
+
+### Group by + having
+
+```python
+# Revenue per region
+rows = (Order.query()
+             .select("region")
+             .group_by("region")
+             .having("SUM(total) > %s", 10000)
+             .all())
+
+# Count orders per user
+rows = Order.query().group_by("user_id").having("COUNT(*) > 2").all()
+```
+
+### Joins
+
+```python
+rows = (User.query()
+            .inner_join("orders", "users.id = orders.user_id")
+            .where("orders.shipped", True)
+            .order_by("users.username")
+            .all())
+
+rows = (User.query()
+            .left_join("orders", "users.id = orders.user_id")
+            .all())
+```
+
+### Subqueries
+
+```python
+active_ids = User.query().where("active", True).subquery("id")
+orders = Order.query().where("user_id__in", active_ids).all()
+```
+
+### Terminal methods summary
+
+| Method | Returns | Description |
+|---|---|---|
+| `.all()` | `list[ModelInstance]` | All matching rows |
+| `.first()` | `ModelInstance \| None` | First matching row |
+| `.count()` | `int` | `COUNT(*)` of matching rows |
+| `.exists()` | `bool` | True if any row matches |
+| `.update(**kwargs)` | `int` | Rows updated |
+| `.delete()` | `int` | Rows deleted |
+| `.paginate(page, per_page)` | `dict` | Paginated result with metadata |
 
 ---
 

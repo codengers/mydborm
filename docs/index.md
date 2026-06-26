@@ -22,7 +22,7 @@ Zero bloat. Declarative models. Full CRUD. 29 field types. Bulk ops. Async. Migr
 - **Bulk operations** — chunked `bulk_create / bulk_update / bulk_delete` with retry and progress callbacks
 - **Mixins** — `SoftDeleteMixin`, `AuditMixin`, `TimestampMixin` in one line
 - **Async support** — `AsyncBaseModel` via `aiomysql` and `aiopg` for FastAPI
-- **QueryBuilder** — `select()`, `update()`, `paginate()`, `group_by()`, `having()`, subqueries
+- **QueryBuilder** — `where()`, `or_where()`, `select()`, `distinct()`, `update()`, `delete()`, `paginate()`, `group_by()`, `having()`, joins, subqueries
 
 ---
 
