@@ -229,6 +229,71 @@ def test_max():
 # ------------------------------------------------------------------ #
 
 # ------------------------------------------------------------------ #
+#  or_where()                                                          #
+# ------------------------------------------------------------------ #
+
+def test_or_where_basic():
+    # Cherry (False) and Elderberry (False) are inactive
+    rows = Item.query().or_where("name", "Cherry").or_where("name", "Elderberry").all()
+    names = {r["name"] for r in rows}
+    assert names == {"Cherry", "Elderberry"}
+
+
+def test_or_where_combined_with_where():
+    # Only Apple is active AND (name=Apple OR name=Cherry)
+    rows = (Item.query()
+                .where("active", True)
+                .or_where("name", "Apple")
+                .or_where("name", "Cherry")
+                .all())
+    names = {r["name"] for r in rows}
+    assert "Apple" in names
+    assert "Cherry" not in names   # Cherry is inactive — AND filters it out
+
+
+def test_or_where_with_operator():
+    rows = Item.query().or_where("price__lt", 1.0).or_where("price__gt", 7.0).all()
+    assert all(r["price"] < 1.0 or r["price"] > 7.0 for r in rows)
+    assert len(rows) == 2   # Banana (0.75) and Elderberry (8.00)
+
+
+def test_or_where_with_in_operator():
+    rows = Item.query().or_where("name__in", ["Apple", "Date"]).all()
+    names = {r["name"] for r in rows}
+    assert names == {"Apple", "Date"}
+
+
+def test_or_where_count():
+    total = Item.query().or_where("active", True).or_where("stock__lt", 20).count()
+    assert total >= 3   # at least the 3 active items
+
+
+def test_or_where_update():
+    updated = (Item.query()
+                   .or_where("name", "Cherry")
+                   .or_where("name", "Elderberry")
+                   .update(stock=999))
+    assert updated == 2
+    assert Item.query().where("stock", 999).count() == 2
+
+
+def test_or_where_delete():
+    deleted = (Item.query()
+                   .or_where("name", "Cherry")
+                   .or_where("name", "Elderberry")
+                   .delete())
+    assert deleted == 2
+    assert Item.query().count() == 3
+
+
+def test_or_where_only_no_and():
+    # No .where() — just OR conditions
+    rows = Item.query().or_where("name", "Apple").all()
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Apple"
+
+
+# ------------------------------------------------------------------ #
 #  select() — column projection                                        #
 # ------------------------------------------------------------------ #
 
