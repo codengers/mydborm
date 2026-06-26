@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.7.0] - 2026-06-26
+
+### Added
+- `QueryBuilder.update(**kwargs)` — bulk-update matching rows, returns affected row count
+- `QueryBuilder.select(*columns)` — column projection, restricts `SELECT *` to specific columns
+- Comprehensive README overhaul — sections 18–20 (Mixins, Session, Validators), full operator table, extended field types, 30+ field reference
+
+---
+
 ## [1.6.0] - 2026-06-25
 
 ### Added
