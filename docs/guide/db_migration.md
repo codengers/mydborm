@@ -54,6 +54,38 @@ result.is_success()       # True if tables_failed == 0 and no errors
 result.summary()          # human-readable report
 ```
 
+## Migrating by model class
+
+`MigrationEngine` builds the target schema from whatever is *live* in the
+source database. If you already have `BaseModel` subclasses and want the
+*model's own field definitions* to be the source of truth for the target
+table instead — typed columns, `NOT NULL`, defaults, and all — use
+`ObjectMigrator`:
+
+```python
+from mydborm import db, ObjectMigrator
+from myapp.models import User, Order
+
+source_db = db  # or any configured ConnectionManager
+target_db = db.__class__()
+target_db.configure(dialect="yugabyte", host="127.0.0.1", port=5433,
+                     user="yugabyte", password="<password>", database="shop")
+
+migrator = ObjectMigrator(source_db, target_db, chunk_size=500)
+
+result = migrator.migrate_model(User)
+# {"table": "users", "rows_total": 12450, "rows_transferred": 12450, "skipped": False}
+
+results = migrator.migrate_models([User, Order], overwrite=True)
+# one model failing (e.g. a missing source table) doesn't stop the rest —
+# failed entries come back as {"table": ..., "error": "..."}
+```
+
+`ObjectMigrator` doesn't own `source_db`/`target_db` — configure and close
+them yourself, the same way you would for `MigrationEngine`. Row transfer
+reuses the same chunked, retrying `DataTransfer` used internally by
+`MigrationEngine`.
+
 ## Dry run
 
 `dry_run()` extracts the schema and generates DDL without opening a write

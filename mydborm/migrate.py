@@ -668,6 +668,123 @@ class DataTransfer:
 
 
 # ------------------------------------------------------------------ #
+#  ObjectMigrator                                                      #
+# ------------------------------------------------------------------ #
+
+class ObjectMigrator:
+    """
+    Migrate BaseModel-registered tables using the model's own declared
+    field definitions to build the target schema, instead of
+    introspecting the source database's live schema via
+    SchemaExtractor. Use this when the model class — not whatever is
+    currently live in the source DB — is the source of truth for the
+    target table's structure.
+
+    Does not own source_db/target_db: the caller configures and closes
+    them, same as DataTransfer and Verifier.
+
+    Usage:
+        migrator = ObjectMigrator(source_db, target_db)
+        result   = migrator.migrate_model(User, chunk_size=500)
+        results  = migrator.migrate_models([User, Order], overwrite=True)
+    """
+
+    def __init__(self, source_db: ConnectionManager, target_db: ConnectionManager,
+                 chunk_size: int = 500, retries: int = 3, retry_delay: float = 0.5):
+        self.source_db = source_db
+        self.target_db = target_db
+        self.chunk_size = chunk_size
+        self.retries = retries
+        self.retry_delay = retry_delay
+
+    def create_table_sql(self, model_class, if_not_exists: bool = True) -> str:
+        """Build CREATE TABLE SQL for model_class against target_db's dialect."""
+        dialect     = _normalize_dialect(self.target_db.dialect)
+        has_comp_pk = bool(getattr(model_class, "_composite_pk", None))
+        col_defs    = []
+
+        for fname, fld in model_class._fields.items():
+            sql_def = fld.to_sql_def(dialect)
+            if has_comp_pk and getattr(fld, "primary_key", False):
+                # Skip inline PRIMARY KEY — added as a table constraint below.
+                sql_def = (
+                    sql_def
+                    .replace(" PRIMARY KEY AUTO_INCREMENT", " NOT NULL AUTO_INCREMENT")
+                    .replace(" PRIMARY KEY", " NOT NULL")
+                    .replace(" SERIAL PRIMARY KEY", " SERIAL")
+                    .replace("SERIAL", "INTEGER NOT NULL")
+                )
+            col_defs.append(f"{_quote(fname, dialect)} {sql_def}")
+
+        if has_comp_pk:
+            pk_cols = model_class._composite_pk
+            pk_list = ", ".join(_quote(c, dialect) for c in pk_cols)
+            col_defs.append(f"PRIMARY KEY ({pk_list})")
+
+        dialect_cls = get_dialect(dialect)
+        return dialect_cls.create_table_sql(
+            model_class._table, col_defs, if_not_exists=if_not_exists
+        )
+
+    def migrate_model(self, model_class, overwrite: bool = False,
+                       on_progress: Optional[Callable] = None) -> dict:
+        """
+        Create model_class's table in target_db (from its field
+        definitions) and copy its rows over from source_db.
+
+        Returns {"table", "rows_total", "rows_transferred", "skipped"}.
+        """
+        table   = model_class._table
+        columns = [
+            {"name": name, "type": fld.sql_type}
+            for name, fld in model_class._fields.items()
+        ]
+
+        with self.target_db.connect() as conn:
+            conn.cursor().execute(self.create_table_sql(model_class))
+
+        transfer = DataTransfer(
+            self.source_db, self.target_db, chunk_size=self.chunk_size,
+            retries=self.retries, retry_delay=self.retry_delay,
+        )
+
+        if transfer.target_has_data(table):
+            if not overwrite:
+                return {
+                    "table": table, "rows_total": 0,
+                    "rows_transferred": 0, "skipped": True,
+                }
+            with self.target_db.connect() as conn:
+                conn.cursor().execute(
+                    f"DELETE FROM {_quote(table, self.target_db.dialect)};"
+                )
+
+        stats = transfer.copy_table(table, columns, on_progress=on_progress)
+        return {
+            "table":            table,
+            "rows_total":       stats["rows_total"],
+            "rows_transferred": stats["rows_transferred"],
+            "skipped":          False,
+        }
+
+    def migrate_models(self, model_classes: list, overwrite: bool = False,
+                        on_progress: Optional[Callable] = None) -> list:
+        """Call migrate_model for each class. One model's failure does
+        not stop the others — failures are recorded as {"table", "error"}."""
+        results = []
+        for model_class in model_classes:
+            try:
+                results.append(
+                    self.migrate_model(
+                        model_class, overwrite=overwrite, on_progress=on_progress
+                    )
+                )
+            except Exception as e:
+                results.append({"table": model_class._table, "error": str(e)})
+        return results
+
+
+# ------------------------------------------------------------------ #
 #  Stage 5 — Verifier                                                  #
 # ------------------------------------------------------------------ #
 

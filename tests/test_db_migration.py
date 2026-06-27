@@ -16,9 +16,10 @@ import socket
 import pytest
 
 from mydborm.db import ConnectionManager
+from mydborm import BaseModel, IntField, StrField, BoolField
 from mydborm.migrate import (
     TypeMapper, SchemaExtractor, DDLGenerator, DataTransfer, Verifier,
-    MigrationEngine, MigrationResult, _pg_column_type,
+    MigrationEngine, MigrationResult, ObjectMigrator, _pg_column_type,
 )
 
 
@@ -994,3 +995,183 @@ class TestMigrationEngineRerun:
 
         assert second.is_success()
         assert any("Could not create index" in w for w in second.warnings)
+
+
+# ------------------------------------------------------------------ #
+#  ObjectMigrator                                                      #
+# ------------------------------------------------------------------ #
+
+class OMUser(BaseModel):
+    __tablename__ = "om_users"
+    id     = IntField(primary_key=True)
+    name   = StrField(max_length=100, nullable=False)
+    active = BoolField(default=True)
+
+
+def test_object_migrator_create_table_sql_mysql_target():
+    target = ConnectionManager()
+    target.configure(dialect="mysql", host="x", user="x", password="x", database="x")
+    migrator = ObjectMigrator(ConnectionManager(), target)
+
+    sql = migrator.create_table_sql(OMUser)
+
+    assert "CREATE TABLE IF NOT EXISTS `om_users`" in sql
+    assert "`id` INT PRIMARY KEY AUTO_INCREMENT" in sql
+    assert "`name` VARCHAR(100) NOT NULL" in sql
+    assert "`active` TINYINT(1)" in sql
+
+
+def test_object_migrator_create_table_sql_yugabyte_target():
+    target = ConnectionManager()
+    target.configure(dialect="yugabyte", host="x", user="x", password="x", database="x")
+    migrator = ObjectMigrator(ConnectionManager(), target)
+
+    sql = migrator.create_table_sql(OMUser)
+
+    assert 'CREATE TABLE IF NOT EXISTS "om_users"' in sql
+    assert '"id" SERIAL PRIMARY KEY' in sql
+    assert '"name" VARCHAR(100) NOT NULL' in sql
+    assert '"active" BOOLEAN' in sql
+
+
+@mysql_skip
+class TestObjectMigratorMySQL:
+    @pytest.fixture(autouse=True)
+    def setup_dbs(self):
+        bootstrap = ConnectionManager()
+        bootstrap.configure(**MYSQL_CONFIG)
+        with bootstrap.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("CREATE DATABASE IF NOT EXISTS testdb_source")
+            cur.execute("CREATE DATABASE IF NOT EXISTS testdb_target")
+        bootstrap.close()
+
+        self.source = ConnectionManager()
+        self.source.configure(**_source_engine_config())
+        self.target = ConnectionManager()
+        self.target.configure(**_target_engine_config())
+
+        with self.source.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("DROP TABLE IF EXISTS om_users")
+            cur.execute("""
+                CREATE TABLE om_users (
+                  id     INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                  name   VARCHAR(100) NOT NULL,
+                  active TINYINT(1) DEFAULT 1
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """)
+            cur.executemany(
+                "INSERT INTO om_users (name, active) VALUES (%s, %s)",
+                [(f"user{i}", i % 2) for i in range(1, 4)],
+            )
+        with self.target.connect() as conn:
+            conn.cursor().execute("DROP TABLE IF EXISTS om_users")
+            conn.cursor().execute("DROP TABLE IF EXISTS om_missing_xyz")
+
+        yield
+
+        with self.source.connect() as conn:
+            conn.cursor().execute("DROP TABLE IF EXISTS om_users")
+        with self.target.connect() as conn:
+            conn.cursor().execute("DROP TABLE IF EXISTS om_users")
+            conn.cursor().execute("DROP TABLE IF EXISTS om_missing_xyz")
+        self.source.close()
+        self.target.close()
+
+    def test_migrate_model_transfers_rows(self):
+        migrator = ObjectMigrator(self.source, self.target)
+        result = migrator.migrate_model(OMUser)
+
+        assert result == {
+            "table": "om_users", "rows_total": 3,
+            "rows_transferred": 3, "skipped": False,
+        }
+        with self.target.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM om_users")
+            assert cur.fetchone()[0] == 3
+
+    def test_migrate_model_skips_when_target_has_data(self):
+        with self.target.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE om_users (
+                  id     INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                  name   VARCHAR(100) NOT NULL,
+                  active TINYINT(1) DEFAULT 1
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """)
+            cur.execute("INSERT INTO om_users (name, active) VALUES ('existing', 1)")
+
+        migrator = ObjectMigrator(self.source, self.target)
+        result = migrator.migrate_model(OMUser)
+
+        assert result["skipped"] is True
+        with self.target.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM om_users")
+            assert cur.fetchone()[0] == 1
+
+    def test_migrate_model_overwrite_replaces_data(self):
+        with self.target.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE om_users (
+                  id     INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                  name   VARCHAR(100) NOT NULL,
+                  active TINYINT(1) DEFAULT 1
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """)
+            cur.execute("INSERT INTO om_users (name, active) VALUES ('stale', 1)")
+
+        migrator = ObjectMigrator(self.source, self.target)
+        result = migrator.migrate_model(OMUser, overwrite=True)
+
+        assert result["skipped"] is False
+        assert result["rows_transferred"] == 3
+        with self.target.connect() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM om_users WHERE name = 'stale'")
+            assert cur.fetchone()[0] == 0
+            cur.execute("SELECT COUNT(*) FROM om_users")
+            assert cur.fetchone()[0] == 3
+
+    def test_migrate_models_one_failure_does_not_stop_others(self):
+        class OMMissing(BaseModel):
+            __tablename__ = "om_missing_xyz"
+            id = IntField(primary_key=True)
+
+        migrator = ObjectMigrator(self.source, self.target)
+        results = migrator.migrate_models([OMUser, OMMissing])
+
+        by_table = {r["table"]: r for r in results}
+        assert by_table["om_users"]["rows_transferred"] == 3
+        assert "error" in by_table["om_missing_xyz"]
+
+    def test_migrate_model_progress_callback_invoked(self):
+        calls = []
+        migrator = ObjectMigrator(self.source, self.target, chunk_size=2)
+        migrator.migrate_model(
+            OMUser, on_progress=lambda t, done, total: calls.append((t, done, total))
+        )
+        assert calls[-1] == ("om_users", 3, 3)
+
+
+class OMOrderItem(BaseModel):
+    __tablename__ = "om_order_items"
+    __pk__        = ("order_id", "product_id")
+    order_id   = IntField(nullable=False)
+    product_id = IntField(nullable=False)
+    quantity   = IntField(nullable=False, default=1)
+
+
+def test_object_migrator_create_table_sql_composite_pk():
+    target = ConnectionManager()
+    target.configure(dialect="mysql", host="x", user="x", password="x", database="x")
+    migrator = ObjectMigrator(ConnectionManager(), target)
+
+    sql = migrator.create_table_sql(OMOrderItem)
+
+    assert "CREATE TABLE IF NOT EXISTS `om_order_items`" in sql
+    assert "PRIMARY KEY (`order_id`, `product_id`)" in sql
