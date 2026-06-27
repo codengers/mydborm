@@ -777,9 +777,9 @@ class MigrationEngine:
     Usage:
         engine = MigrationEngine(
             source={"dialect": "mysql", "host": "127.0.0.1", "port": 3306,
-                    "user": "root", "password": "root", "database": "shop"},
+                    "user": "root", "password": "<password>", "database": "shop"},
             target={"dialect": "yugabyte", "host": "127.0.0.1", "port": 5433,
-                    "user": "yugabyte", "password": "yugabyte", "database": "shop"},
+                    "user": "yugabyte", "password": "<password>", "database": "shop"},
         )
 
         report = engine.dry_run()              # preview, no writes
