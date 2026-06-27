@@ -810,6 +810,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../db_migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../bulk_ops/" class="md-nav__link">
         
   
@@ -1361,12 +1389,36 @@
 
 
 <h1 id="transactions">Transactions</h1>
+<p>Sometimes a single piece of work needs more than one SQL statement to
+finish — for example, creating a user <em>and</em> creating their profile row.
+If the first statement succeeds but the second one fails (a network blip,
+a constraint violation, the process crashing), you're left with a user and
+no profile: a half-finished, inconsistent state in your database.</p>
+<p>A <strong>transaction</strong> groups multiple statements into one all-or-nothing unit.
+Either every statement inside it succeeds and gets saved together, or — if
+anything raises an exception — <em>all</em> of them are undone, as if none of it
+ever happened. This guarantee (commonly summarized as "atomicity") is the
+main reason to reach for a transaction: whenever a single logical
+operation needs to touch more than one table, or run more than one
+statement, wrap it in one.</p>
 <h2 id="basic-transaction">Basic transaction</h2>
+<p>Use <code>db.transaction()</code> as a context manager. Everything you run inside the
+<code>with</code> block is part of the same transaction:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">with</span> <span class="n">db</span><span class="o">.</span><span class="n">transaction</span><span class="p">():</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;INSERT INTO users (username) VALUES (</span><span class="si">%s</span><span class="s2">)&quot;</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;alice&quot;</span><span class="p">])</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;INSERT INTO profiles (user_id) VALUES (</span><span class="si">%s</span><span class="s2">)&quot;</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">])</span>
 </code></pre></div>
+<p>If both <code>INSERT</code> statements succeed, they're committed together when the
+<code>with</code> block exits. If the second one raises an exception, mydborm
+automatically rolls back the first one too — you never end up with a user
+row and no matching profile.</p>
 <h2 id="savepoints">Savepoints</h2>
+<p>A plain transaction is all-or-nothing for everything inside it. But
+sometimes you want to attempt something risky in the <em>middle</em> of a
+transaction, and if just that part fails, undo only that part — without
+throwing away everything that happened before it. That's what a
+<strong>savepoint</strong> is for: think of it as a checkpoint you can roll back to
+without rolling back the whole transaction.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">with</span> <span class="n">db</span><span class="o">.</span><span class="n">transaction</span><span class="p">():</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">User</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">username</span><span class="o">=</span><span class="s2">&quot;alice&quot;</span><span class="p">)</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="k">try</span><span class="p">:</span>
@@ -1374,24 +1426,54 @@
 <a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>            <span class="n">User</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">username</span><span class="o">=</span><span class="s2">&quot;bob&quot;</span><span class="p">)</span>
 <a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;bob failed&quot;</span><span class="p">)</span>
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>        <span class="k">pass</span>  <span class="c1"># only bob rolled back</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>        <span class="k">pass</span>  <span class="c1"># only bob rolled back — alice is still queued to be committed</span>
 </code></pre></div>
+<p>Here, creating "bob" fails inside the savepoint, so only bob's <code>INSERT</code> is
+undone. "Alice" was created before the savepoint started, so she's
+unaffected and is still committed when the outer transaction finishes. The
+name you pass to <code>db.savepoint(...)</code> is just a label — if you don't supply
+one, mydborm generates one for you.</p>
 <h2 id="bulk-transaction">Bulk transaction</h2>
+<p><code>db.bulk_transaction()</code> works the same way as <code>db.transaction()</code> — it
+wraps multiple statements so they all commit together or all roll back
+together. It exists as a clearly-named option for the common case of
+inserting many rows across related tables in one logical batch:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">with</span> <span class="n">db</span><span class="o">.</span><span class="n">bulk_transaction</span><span class="p">():</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;INSERT INTO orders ...&quot;</span><span class="p">)</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;INSERT INTO order_items ...&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="nested-transactions">Nested transactions</h2>
+<p>If you have code that wraps its own work in <code>db.transaction()</code>, but that
+code might sometimes be called from <em>inside</em> another transaction that's
+already open, <code>db.nested_transaction()</code> handles both cases for you
+automatically: it starts a real transaction if there isn't one open yet, or
+falls back to a savepoint if there already is one. Either way, a failure
+inside it only undoes the nested part:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">with</span> <span class="n">db</span><span class="o">.</span><span class="n">transaction</span><span class="p">():</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">User</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">username</span><span class="o">=</span><span class="s2">&quot;outer&quot;</span><span class="p">)</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="k">with</span> <span class="n">db</span><span class="o">.</span><span class="n">nested_transaction</span><span class="p">():</span>
 <a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>        <span class="n">User</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">username</span><span class="o">=</span><span class="s2">&quot;inner&quot;</span><span class="p">)</span>
 </code></pre></div>
+<p>This is mainly useful when writing reusable functions that need to be safe
+to call both on their own and as part of a larger transaction someone else
+started.</p>
 <h2 id="retry-on-deadlock">Retry on deadlock</h2>
+<p>A <strong>deadlock</strong> happens when two transactions are each waiting on a lock
+the other one holds, and the database has to pick one to fail so the other
+can proceed. This is a normal, expected occurrence under concurrent load —
+not a bug in your code — and the usual fix is simply to retry the whole
+transaction. <code>db.transaction_with_retry()</code> does this automatically: if the
+transaction fails because of a deadlock (or a lock wait timeout), it
+retries up to <code>retries</code> times, waiting a little longer between each
+attempt. Any other kind of error is raised immediately, without retrying:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">with</span> <span class="n">db</span><span class="o">.</span><span class="n">transaction_with_retry</span><span class="p">(</span><span class="n">retries</span><span class="o">=</span><span class="mi">3</span><span class="p">):</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;UPDATE accounts SET balance = balance - 100 ...&quot;</span><span class="p">)</span>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">db</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="s2">&quot;UPDATE accounts SET balance = balance + 100 ...&quot;</span><span class="p">)</span>
 </code></pre></div>
+<p>This example — moving money from one account to another — is a classic
+case for both a transaction (you never want only one side of the transfer
+to happen) and retry-on-deadlock (two transfers touching the same accounts
+at the same time are likely to collide).</p>
 
 
 

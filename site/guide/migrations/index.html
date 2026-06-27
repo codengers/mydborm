@@ -18,7 +18,7 @@
         <link rel="prev" href="../session/">
       
       
-        <link rel="next" href="../bulk_ops/">
+        <link rel="next" href="../db_migration/">
       
       
         
@@ -740,10 +740,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#apply-migration" class="md-nav__link">
+  <a href="#apply-a-migration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Apply migration
+        Apply a migration
       
     </span>
   </a>
@@ -798,6 +798,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../db_migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1286,10 +1314,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#apply-migration" class="md-nav__link">
+  <a href="#apply-a-migration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Apply migration
+        Apply a migration
       
     </span>
   </a>
@@ -1361,19 +1389,61 @@
 
 
 <h1 id="migrations">Migrations</h1>
-<h2 id="apply-migration">Apply migration</h2>
+<blockquote>
+<p>This page is about keeping <strong>one</strong> database's schema in sync with your
+Python model definitions as they change over time. If you're instead
+trying to copy data and tables <em>between two different databases</em> (say,
+moving from MySQL to YugabyteDB), that's a separate feature — see
+<a href="../db_migration/">Database Migration</a>.</p>
+</blockquote>
+<p>When you add a field to a model, rename one, or change a type, your model
+class and your actual database table drift out of sync — the table doesn't
+automatically grow a new column just because you added one to the Python
+class. mydborm's <strong>migrations</strong> module compares your model's field
+definitions against what the live database table actually looks like, and
+generates the <code>CREATE TABLE</code> or <code>ALTER TABLE</code> statements needed to bring
+the table in line with the model.</p>
+<h2 id="apply-a-migration">Apply a migration</h2>
+<p><code>migrate()</code> does the comparison and applies whatever changes are needed —
+creating the table if it doesn't exist yet, or adding/dropping columns if
+it does — in one step:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.migrations</span><span class="w"> </span><span class="kn">import</span> <span class="n">migrate</span><span class="p">,</span> <span class="n">migration_status</span><span class="p">,</span> <span class="n">rollback</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">migrate</span><span class="p">(</span><span class="n">User</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;create users table&quot;</span><span class="p">)</span>
 </code></pre></div>
+<p><code>description</code> is just a human-readable label stored alongside the
+migration record — it doesn't affect what SQL gets run. Behind the scenes,
+mydborm records every migration it applies in a tracking table
+(<code>_mydborm_migrations</code>) along with a checksum of the SQL, so running
+<code>migrate(User, ...)</code> again later won't reapply a migration that's already
+been applied.</p>
 <h2 id="check-status">Check status</h2>
+<p>Since every applied migration is recorded, you can list them — useful for
+checking what's already been run against a given database, especially
+when several developers or environments might apply migrations
+independently:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">migration_status</span><span class="p">():</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">m</span><span class="p">[</span><span class="s2">&quot;version&quot;</span><span class="p">],</span> <span class="n">m</span><span class="p">[</span><span class="s2">&quot;description&quot;</span><span class="p">],</span> <span class="n">m</span><span class="p">[</span><span class="s2">&quot;applied_at&quot;</span><span class="p">])</span>
 </code></pre></div>
+<p>Each entry also includes whether it's since been rolled back.</p>
 <h2 id="rollback">Rollback</h2>
+<p><code>rollback()</code> undoes a migration for a model — but be aware of what "undo"
+actually means here: it <strong>drops the table entirely</strong>, deleting all of its
+data, and then marks the migration as rolled back in the tracking table.
+There's no automatic way to get the data back afterward, so only use this
+in development, or when you're certain the table's contents are
+disposable:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">rollback</span><span class="p">(</span><span class="n">User</span><span class="p">)</span>
 </code></pre></div>
+<p>If you need to preserve data while changing a table's structure, write
+and review a migration file manually (see below) instead of relying on
+<code>rollback()</code>.</p>
 <h2 id="auto-generate-sql-files">Auto-generate SQL files</h2>
+<p>Applying a migration immediately with <code>migrate()</code> is convenient, but
+sometimes you'd rather see the SQL first — to review it, tweak it, or commit
+it to version control so your team has a record of every schema change.
+<code>generate()</code> writes the migration SQL to a numbered file instead of running
+it right away:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.migrations</span><span class="w"> </span><span class="kn">import</span> <span class="n">generate</span><span class="p">,</span> <span class="n">apply_migration_file</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">generate</span><span class="p">(</span><span class="n">User</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="s2">&quot;migrations/&quot;</span><span class="p">)</span>
@@ -1381,7 +1451,16 @@
 <a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
 <a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">apply_migration_file</span><span class="p">(</span><span class="s2">&quot;migrations/0001_user.sql&quot;</span><span class="p">)</span>
 </code></pre></div>
+<p><code>generate()</code> figures out the next version number automatically by counting
+the <code>.sql</code> files already in <code>output_dir</code>, so files end up named
+<code>0001_*.sql</code>, <code>0002_*.sql</code>, and so on. Once you're happy with a generated
+file (or after editing it), <code>apply_migration_file()</code> runs the SQL statements
+it contains against the database. You can also pass <code>apply=True</code> to
+<code>generate()</code> to skip the separate step and apply it immediately after
+writing the file.</p>
 <h2 id="cli">CLI</h2>
+<p>All of the above is also available from the terminal, without writing any
+Python — see <a href="../cli/">CLI</a> for the full list of commands and options:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>mydborm<span class="w"> </span>migrate<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--status
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>mydborm<span class="w"> </span>generate<span class="w"> </span>--model<span class="w"> </span>myapp.models.User<span class="w"> </span>--output<span class="w"> </span>migrations/
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>mydborm<span class="w"> </span>generate<span class="w"> </span>--model<span class="w"> </span>myapp.models.User<span class="w"> </span>--apply

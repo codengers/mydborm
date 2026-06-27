@@ -15,7 +15,7 @@
         <link rel="canonical" href="https://codengers.github.io/mydborm/guide/bulk_ops/">
       
       
-        <link rel="prev" href="../migrations/">
+        <link rel="prev" href="../db_migration/">
       
       
         <link rel="next" href="../validators/">
@@ -705,6 +705,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../db_migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -766,6 +794,17 @@
       Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-not-just-loop-over-create" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why not just loop over .create()?
+      
+    </span>
+  </a>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#basic-bulk-operations" class="md-nav__link">
@@ -1442,6 +1481,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#why-not-just-loop-over-create" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why not just loop over .create()?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#basic-bulk-operations" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1673,11 +1723,30 @@
 
 
 <h1 id="bulk-operations">Bulk Operations</h1>
-<p>mydborm provides high-performance bulk operations for inserting, updating,
-deleting, and upserting large datasets — with chunking, retry logic,
-progress callbacks, and detailed result objects.</p>
+<p>If you've ever needed to insert, update, or delete thousands of rows at
+once — importing a CSV of products, recalculating prices for every item in
+a catalog, purging old records — you've probably noticed that calling
+<code>.create()</code> once per row gets slow fast. This page covers mydborm's
+<strong>bulk operations</strong>: ways to insert, update, delete, and upsert (insert-or-update)
+many rows at once, built specifically to handle large datasets without
+choking your database connection or losing track of partial failures.</p>
+<h2 id="why-not-just-loop-over-create">Why not just loop over <code>.create()</code>?</h2>
+<p>Every time you call <code>Product.create(...)</code>, mydborm sends one SQL
+statement to the database and waits for a response before your code moves
+on — that round trip (your app to the database server and back) has a
+fixed cost, even for a tiny row. If you insert 10,000 rows in a Python
+<code>for</code> loop, you pay that round-trip cost 10,000 times.</p>
+<p><code>bulk_create()</code> instead builds a <strong>single</strong> <code>INSERT</code> statement covering
+many rows and sends it once. One round trip instead of thousands. The
+difference is dramatic — see <a href="#compare-bulk-vs-loop">Compare bulk vs loop</a>
+near the end of this page for real numbers.</p>
 <hr />
 <h2 id="basic-bulk-operations">Basic bulk operations</h2>
+<p>These four methods live directly on your model class. They're the
+right tool when your dataset comfortably fits in memory and you don't need
+retry logic — for anything large enough that a single failure shouldn't
+lose your whole batch, skip ahead to
+<a href="#chunked-bulk-operations">Chunked bulk operations</a>.</p>
 <h3 id="bulk_create">bulk_create()</h3>
 <p>Insert many records in a single SQL statement:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">IntField</span><span class="p">,</span> <span class="n">StrField</span><span class="p">,</span> <span class="n">BoolField</span><span class="p">,</span> <span class="n">FloatField</span>
@@ -1698,8 +1767,14 @@ progress callbacks, and detailed result objects.</p>
 <a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="n">count</span> <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">bulk_create</span><span class="p">(</span><span class="n">records</span><span class="p">)</span>
 <a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Inserted </span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> products&quot;</span><span class="p">)</span>   <span class="c1"># 1000</span>
 </code></pre></div>
+<p><code>records</code> is just a plain list of dicts — one dict per row, with the same
+keys you'd pass to <code>.create()</code>. <code>bulk_create()</code> validates every record the
+same way <code>.create()</code> does (checking required fields, types, lengths) and
+then sends them all as one <code>INSERT</code> statement. It returns the number of
+rows actually inserted.</p>
 <h3 id="bulk_update">bulk_update()</h3>
-<p>Update many records at once:</p>
+<p>Update many records at once — each dict in the list needs to include
+whichever field you're using to identify the row (by default, <code>id</code>):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Get current products</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">products</span> <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">active</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
@@ -1718,8 +1793,13 @@ progress callbacks, and detailed result objects.</p>
 <a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>    <span class="n">key</span><span class="o">=</span><span class="s2">&quot;sku&quot;</span>
 <a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="p">)</span>
 </code></pre></div>
+<p>Unlike <code>bulk_create()</code>, <code>bulk_update()</code> doesn't combine everything into one
+statement — under the hood it runs one <code>UPDATE</code> per record (each row can be
+changing different fields, so they can't always be merged into a single
+query). It still returns the total number of rows affected.</p>
 <h3 id="bulk_delete">bulk_delete()</h3>
-<p>Delete many records by ID:</p>
+<p>Delete many records by their key value — pass a plain list of IDs (or
+whatever field you're matching on):</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Delete all inactive products</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">inactive</span> <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">active</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">ids</span>      <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">inactive</span><span class="p">]</span>
@@ -1729,8 +1809,12 @@ progress callbacks, and detailed result objects.</p>
 <a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># Delete by custom key</span>
 <a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">Product</span><span class="o">.</span><span class="n">bulk_delete</span><span class="p">([</span><span class="s2">&quot;P00001&quot;</span><span class="p">,</span> <span class="s2">&quot;P00002&quot;</span><span class="p">],</span> <span class="n">key</span><span class="o">=</span><span class="s2">&quot;sku&quot;</span><span class="p">)</span>
 </code></pre></div>
+<p>This one <em>does</em> run as a single <code>DELETE ... WHERE key IN (...)</code> statement,
+so it's just as efficient as <code>bulk_create()</code>.</p>
 <h3 id="bulk_upsert">bulk_upsert()</h3>
-<p>Insert new records or update existing ones based on a unique field:</p>
+<p>"Upsert" means <strong>insert</strong> a row if it doesn't exist yet, or <strong>update</strong> it
+if it does — useful when you're syncing data from somewhere else and don't
+know ahead of time which rows are new:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Sync product catalog — inserts new, updates existing</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">catalog</span> <span class="o">=</span> <span class="p">[</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="p">{</span><span class="s2">&quot;sku&quot;</span><span class="p">:</span> <span class="s2">&quot;LAPTOP-001&quot;</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;MacBook Pro&quot;</span><span class="p">,</span>  <span class="s2">&quot;price&quot;</span><span class="p">:</span> <span class="mf">1999.99</span><span class="p">,</span> <span class="s2">&quot;active&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">},</span>
@@ -1744,163 +1828,252 @@ progress callbacks, and detailed result objects.</p>
 <a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    <span class="n">update_fields</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="s2">&quot;price&quot;</span><span class="p">],</span>        <span class="c1"># update these on conflict</span>
 <a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="p">)</span>
 <a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Processed </span><span class="si">{</span><span class="n">count</span><span class="si">}</span><span class="s2"> products&quot;</span><span class="p">)</span>
-<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>
-<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="c1"># With create_index=True (default) — auto-creates UNIQUE index on conflict_key</span>
-<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="c1"># MySQL: ON DUPLICATE KEY UPDATE</span>
-<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="c1"># YugabyteDB: ON CONFLICT (sku) DO UPDATE SET</span>
+</code></pre></div>
+<p><code>conflict_key</code> is the field mydborm uses to decide "is this a new row or an
+existing one?" — usually a column with a <code>UNIQUE</code> constraint, like a SKU
+or email address. <code>update_fields</code> lists which columns get overwritten when
+a conflict is found; any column you don't list stays untouched on existing
+rows.</p>
+<p>By default (<code>create_index=True</code>), if <code>conflict_key</code> isn't already a
+primary key, mydborm automatically creates a <code>UNIQUE</code> index on it the
+first time you call <code>bulk_upsert()</code> — without a unique index, the database
+has no way to detect a "conflict" in the first place. The actual SQL
+mydborm generates depends on which database you're using:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># With create_index=True (default) — auto-creates UNIQUE index on conflict_key</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="c1"># MySQL: ON DUPLICATE KEY UPDATE</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># YugabyteDB / PostgreSQL: ON CONFLICT (sku) DO UPDATE SET</span>
 </code></pre></div>
 <hr />
 <h2 id="chunked-bulk-operations">Chunked bulk operations</h2>
-<p>For very large datasets — splits into chunks with retry logic:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">chunked_bulk_create</span><span class="p">,</span> <span class="n">chunked_bulk_update</span><span class="p">,</span> <span class="n">chunked_bulk_delete</span>
+<p>The methods above are great until your dataset gets big enough that
+sending it all as one giant SQL statement becomes a problem — a single
+<code>INSERT</code> with 100,000 rows can hit query-size limits, tie up the database
+connection for a long time, and if it fails partway through (a dropped
+network connection, a database restart), you lose the <em>entire</em> batch with
+no way to know which rows made it in.</p>
+<p>The <strong>chunked</strong> versions in <code>mydborm.bulk</code> solve this by splitting your
+data into smaller batches ("chunks") and sending each one as its own
+statement, one after another. If one chunk fails, the others aren't
+affected — you find out exactly which chunk failed and how many rows
+succeeded before it.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">chunked_bulk_create</span><span class="p">,</span> <span class="n">chunked_bulk_update</span><span class="p">,</span> <span class="n">chunked_bulk_delete</span>
 </code></pre></div>
 <h3 id="chunked_bulk_create">chunked_bulk_create()</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">chunked_bulk_create</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">records</span> <span class="o">=</span> <span class="p">[</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Item </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;sku&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;I</span><span class="si">{</span><span class="n">i</span><span class="si">:</span><span class="s2">06d</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;price&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">i</span> <span class="o">%</span> <span class="mi">100</span><span class="p">),</span> <span class="s2">&quot;active&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100_000</span><span class="p">)</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">]</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
-<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="n">Product</span><span class="p">,</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>    <span class="n">records</span><span class="p">,</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>    <span class="n">chunk_size</span>  <span class="o">=</span> <span class="mi">500</span><span class="p">,</span>    <span class="c1"># rows per INSERT statement</span>
-<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>    <span class="n">retries</span>     <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>      <span class="c1"># retry each chunk up to 3 times on failure</span>
-<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>    <span class="n">retry_delay</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>    <span class="c1"># 0.5s → 1s → 2s exponential backoff</span>
-<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="p">)</span>
-<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>
-<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
-<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="c1"># Operation : insert</span>
-<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="c1"># Total     : 100000</span>
-<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="c1"># Inserted  : 100000</span>
-<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="c1"># Failed    : 0</span>
-<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a><span class="c1"># Chunks    : 200</span>
-<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a><span class="c1"># Retries   : 0</span>
-<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="c1"># Success   : 100.0%</span>
-<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a><span class="c1"># Duration  : 24.3s</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">chunked_bulk_create</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">records</span> <span class="o">=</span> <span class="p">[</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="p">{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Item </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;sku&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;I</span><span class="si">{</span><span class="n">i</span><span class="si">:</span><span class="s2">06d</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="s2">&quot;price&quot;</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">i</span> <span class="o">%</span> <span class="mi">100</span><span class="p">),</span> <span class="s2">&quot;active&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100_000</span><span class="p">)</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">]</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>    <span class="n">Product</span><span class="p">,</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>    <span class="n">records</span><span class="p">,</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>    <span class="n">chunk_size</span>  <span class="o">=</span> <span class="mi">500</span><span class="p">,</span>    <span class="c1"># rows per INSERT statement</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>    <span class="n">retries</span>     <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>      <span class="c1"># retry each chunk up to 3 times on failure</span>
+<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>    <span class="n">retry_delay</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>    <span class="c1"># 0.5s → 1s → 2s exponential backoff</span>
+<a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a><span class="p">)</span>
+<a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>
+<a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
+<a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a><span class="c1"># Operation : insert</span>
+<a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a><span class="c1"># Total     : 100000</span>
+<a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a><span class="c1"># Inserted  : 100000</span>
+<a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a><span class="c1"># Failed    : 0</span>
+<a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a><span class="c1"># Chunks    : 200</span>
+<a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a><span class="c1"># Retries   : 0</span>
+<a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a><span class="c1"># Success   : 100.0%</span>
+<a id="__codelineno-6-24" name="__codelineno-6-24" href="#__codelineno-6-24"></a><span class="c1"># Duration  : 24.3s</span>
 </code></pre></div>
+<p><code>chunk_size</code> controls how many rows go into each individual <code>INSERT</code>
+statement — with 100,000 records and <code>chunk_size=500</code>, that's 200 separate
+statements sent one after another, instead of either 100,000 individual
+<code>.create()</code> calls or one enormous 100,000-row statement. It's a middle
+ground: each chunk is still fast to send, but you get far fewer round
+trips than inserting row-by-row. See
+<a href="#choose-the-right-chunk_size">Choose the right chunk_size</a> below for
+guidance on picking a number.</p>
+<p><code>retries</code> and <code>retry_delay</code> control what happens when a chunk fails — see
+<a href="#retry-logic">Retry logic</a> below for the full explanation.</p>
 <h3 id="progress-callback">Progress callback</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">show_progress</span><span class="p">(</span><span class="n">done</span><span class="p">,</span> <span class="n">total</span><span class="p">):</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="n">pct</span> <span class="o">=</span> <span class="n">done</span> <span class="o">/</span> <span class="n">total</span> <span class="o">*</span> <span class="mi">100</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">bar</span> <span class="o">=</span> <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="nb">int</span><span class="p">(</span><span class="n">pct</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; &quot;</span> <span class="o">*</span> <span class="p">(</span><span class="mi">50</span> <span class="o">-</span> <span class="nb">int</span><span class="p">(</span><span class="n">pct</span> <span class="o">/</span> <span class="mi">2</span><span class="p">))</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\r</span><span class="s2">[</span><span class="si">{</span><span class="n">bar</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">done</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">total</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">pct</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%)&quot;</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">flush</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    <span class="n">Product</span><span class="p">,</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    <span class="n">records</span><span class="p">,</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>    <span class="n">chunk_size</span>  <span class="o">=</span> <span class="mi">500</span><span class="p">,</span>
-<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>    <span class="n">on_progress</span> <span class="o">=</span> <span class="n">show_progress</span><span class="p">,</span>
-<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="p">)</span>
-<a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="nb">print</span><span class="p">()</span>   <span class="c1"># newline after progress bar</span>
-<a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Done in </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">duration</span><span class="si">}</span><span class="s2">s!&quot;</span><span class="p">)</span>
+<p>For a long-running import, it's useful to show <em>something</em> moving on
+screen rather than staring at a frozen terminal for 30 seconds. Pass a
+function to <code>on_progress</code> and mydborm calls it after every chunk finishes,
+with how many rows are done so far and the total:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">show_progress</span><span class="p">(</span><span class="n">done</span><span class="p">,</span> <span class="n">total</span><span class="p">):</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="n">pct</span> <span class="o">=</span> <span class="n">done</span> <span class="o">/</span> <span class="n">total</span> <span class="o">*</span> <span class="mi">100</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="n">bar</span> <span class="o">=</span> <span class="s2">&quot;=&quot;</span> <span class="o">*</span> <span class="nb">int</span><span class="p">(</span><span class="n">pct</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; &quot;</span> <span class="o">*</span> <span class="p">(</span><span class="mi">50</span> <span class="o">-</span> <span class="nb">int</span><span class="p">(</span><span class="n">pct</span> <span class="o">/</span> <span class="mi">2</span><span class="p">))</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="se">\r</span><span class="s2">[</span><span class="si">{</span><span class="n">bar</span><span class="si">}</span><span class="s2">] </span><span class="si">{</span><span class="n">done</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="n">total</span><span class="si">:</span><span class="s2">,</span><span class="si">}</span><span class="s2"> (</span><span class="si">{</span><span class="n">pct</span><span class="si">:</span><span class="s2">.1f</span><span class="si">}</span><span class="s2">%)&quot;</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">flush</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>    <span class="n">Product</span><span class="p">,</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="n">records</span><span class="p">,</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    <span class="n">chunk_size</span>  <span class="o">=</span> <span class="mi">500</span><span class="p">,</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    <span class="n">on_progress</span> <span class="o">=</span> <span class="n">show_progress</span><span class="p">,</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="p">)</span>
+<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a><span class="nb">print</span><span class="p">()</span>   <span class="c1"># newline after progress bar</span>
+<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Done in </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">duration</span><span class="si">}</span><span class="s2">s!&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="chunked_bulk_update">chunked_bulk_update()</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">chunked_bulk_update</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># Update 50,000 product prices</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">products</span> <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="n">updates</span>  <span class="o">=</span> <span class="p">[{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="n">p</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">],</span> <span class="s2">&quot;price&quot;</span><span class="p">:</span> <span class="n">p</span><span class="p">[</span><span class="s2">&quot;price&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="mf">1.1</span><span class="p">}</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">products</span><span class="p">]</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_update</span><span class="p">(</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="n">Product</span><span class="p">,</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>    <span class="n">updates</span><span class="p">,</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>    <span class="n">key</span>        <span class="o">=</span> <span class="s2">&quot;id&quot;</span><span class="p">,</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>    <span class="n">chunk_size</span> <span class="o">=</span> <span class="mi">500</span><span class="p">,</span>
-<a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>    <span class="n">retries</span>    <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
-<a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a><span class="p">)</span>
-<a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Updated </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">updated</span><span class="si">}</span><span class="s2"> products in </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">duration</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+<p>Same chunking and retry behavior as <code>chunked_bulk_create()</code>, but for
+updates — each record in the list must include the <code>key</code> field so mydborm
+knows which row to update:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">chunked_bulk_update</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="c1"># Update 50,000 product prices</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">products</span> <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="n">updates</span>  <span class="o">=</span> <span class="p">[{</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="n">p</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">],</span> <span class="s2">&quot;price&quot;</span><span class="p">:</span> <span class="n">p</span><span class="p">[</span><span class="s2">&quot;price&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="mf">1.1</span><span class="p">}</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">products</span><span class="p">]</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_update</span><span class="p">(</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>    <span class="n">Product</span><span class="p">,</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>    <span class="n">updates</span><span class="p">,</span>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>    <span class="n">key</span>        <span class="o">=</span> <span class="s2">&quot;id&quot;</span><span class="p">,</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>    <span class="n">chunk_size</span> <span class="o">=</span> <span class="mi">500</span><span class="p">,</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>    <span class="n">retries</span>    <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="p">)</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Updated </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">updated</span><span class="si">}</span><span class="s2"> products in </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">duration</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="chunked_bulk_delete">chunked_bulk_delete()</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">chunked_bulk_delete</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
-<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="c1"># Delete 100,000 old records</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">old_ids</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">Product</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">active</span><span class="o">=</span><span class="kc">False</span><span class="p">)]</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>
-<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_delete</span><span class="p">(</span>
-<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>    <span class="n">Product</span><span class="p">,</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>    <span class="n">old_ids</span><span class="p">,</span>
-<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>    <span class="n">chunk_size</span> <span class="o">=</span> <span class="mi">1000</span><span class="p">,</span>
-<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>    <span class="n">retries</span>    <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
-<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="p">)</span>
-<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleted </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">deleted</span><span class="si">}</span><span class="s2"> records in </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">duration</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">chunked_bulk_delete</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="c1"># Delete 100,000 old records</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">old_ids</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">]</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">Product</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">active</span><span class="o">=</span><span class="kc">False</span><span class="p">)]</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_delete</span><span class="p">(</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>    <span class="n">Product</span><span class="p">,</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>    <span class="n">old_ids</span><span class="p">,</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>    <span class="n">chunk_size</span> <span class="o">=</span> <span class="mi">1000</span><span class="p">,</span>
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>    <span class="n">retries</span>    <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="p">)</span>
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleted </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">deleted</span><span class="si">}</span><span class="s2"> records in </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">duration</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
 </code></pre></div>
+<blockquote>
+<p><strong>Heads up:</strong> if you pass <code>raise_on_error=True</code> to <code>chunked_bulk_delete()</code>
+and a chunk fails, the exception it raises today is actually
+<code>BulkInsertError</code>, not a delete-specific error — there's no
+<code>BulkDeleteError</code> class in the current version of mydborm. The
+<code>BulkResult</code> returned without <code>raise_on_error</code> is unaffected by this and
+reports <code>.deleted</code>/<code>.failed</code> correctly either way; it's only the
+exception type on the <code>raise_on_error=True</code> path that's mislabeled. If
+you're catching exceptions around a chunked delete, catch
+<code>BulkInsertError</code> (or the broader <code>MydbormError</code>) rather than assuming a
+delete-specific type exists.</p>
+</blockquote>
 <hr />
 <h2 id="bulkresult">BulkResult</h2>
-<p>All chunked operations return a <code>BulkResult</code> object:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">BulkResult</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
-<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span><span class="n">Product</span><span class="p">,</span> <span class="n">records</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
-<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="c1"># Counts</span>
-<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">total</span><span class="p">)</span>        <span class="c1"># total records attempted</span>
-<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">inserted</span><span class="p">)</span>     <span class="c1"># successfully inserted</span>
-<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">updated</span><span class="p">)</span>      <span class="c1"># successfully updated</span>
-<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">deleted</span><span class="p">)</span>      <span class="c1"># successfully deleted</span>
-<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">failed</span><span class="p">)</span>       <span class="c1"># failed records</span>
-<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>
-<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="c1"># Stats</span>
-<a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">chunks</span><span class="p">)</span>       <span class="c1"># number of chunks processed</span>
-<a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">retries</span><span class="p">)</span>      <span class="c1"># total retry attempts made</span>
-<a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">duration</span><span class="p">)</span>     <span class="c1"># total time in seconds</span>
-<a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">success_rate</span><span class="p">)</span> <span class="c1"># e.g. 99.5 (percentage)</span>
-<a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">has_errors</span><span class="p">)</span>   <span class="c1"># True if any chunk failed</span>
-<a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a>
-<a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="c1"># Error details</span>
-<a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a><span class="k">for</span> <span class="n">err</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">errors</span><span class="p">:</span>
-<a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Chunk </span><span class="si">{</span><span class="n">err</span><span class="p">[</span><span class="s1">&#39;chunk&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">err</span><span class="p">[</span><span class="s1">&#39;records&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> records — </span><span class="si">{</span><span class="n">err</span><span class="p">[</span><span class="s1">&#39;error&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a>
-<a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="c1"># Full summary string</span>
-<a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
+<p>All three chunked functions above (and the non-chunked methods, via their
+return values) describe what happened using a <code>BulkResult</code> object — a
+single object that bundles up every statistic about the run instead of
+making you track counters yourself:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">BulkResult</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span><span class="n">Product</span><span class="p">,</span> <span class="n">records</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">500</span><span class="p">)</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="c1"># Counts</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">total</span><span class="p">)</span>        <span class="c1"># total records attempted</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">inserted</span><span class="p">)</span>     <span class="c1"># successfully inserted</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">updated</span><span class="p">)</span>      <span class="c1"># successfully updated</span>
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">deleted</span><span class="p">)</span>      <span class="c1"># successfully deleted</span>
+<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">failed</span><span class="p">)</span>       <span class="c1"># failed records</span>
+<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>
+<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="c1"># Stats</span>
+<a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">chunks</span><span class="p">)</span>       <span class="c1"># number of chunks processed</span>
+<a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">retries</span><span class="p">)</span>      <span class="c1"># total retry attempts made</span>
+<a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">duration</span><span class="p">)</span>     <span class="c1"># total time in seconds</span>
+<a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">success_rate</span><span class="p">)</span> <span class="c1"># e.g. 99.5 (percentage)</span>
+<a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">has_errors</span><span class="p">)</span>   <span class="c1"># True if any chunk failed</span>
+<a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a>
+<a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a><span class="c1"># Error details</span>
+<a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a><span class="k">for</span> <span class="n">err</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">errors</span><span class="p">:</span>
+<a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Chunk </span><span class="si">{</span><span class="n">err</span><span class="p">[</span><span class="s1">&#39;chunk&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">err</span><span class="p">[</span><span class="s1">&#39;records&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> records — </span><span class="si">{</span><span class="n">err</span><span class="p">[</span><span class="s1">&#39;error&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a>
+<a id="__codelineno-10-23" name="__codelineno-10-23" href="#__codelineno-10-23"></a><span class="c1"># Full summary string</span>
+<a id="__codelineno-10-24" name="__codelineno-10-24" href="#__codelineno-10-24"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">summary</span><span class="p">())</span>
 </code></pre></div>
+<p>A <code>chunked_bulk_create()</code> call only ever populates <code>.inserted</code> (the
+<code>.updated</code>/<code>.deleted</code> counts stay <code>0</code>), and likewise <code>chunked_bulk_update()</code>
+only populates <code>.updated</code>, and <code>chunked_bulk_delete()</code> only populates
+<code>.deleted</code> — they all share the same <code>BulkResult</code> class, so unrelated
+counters are simply left at zero rather than removed.</p>
 <hr />
 <h2 id="retry-logic">Retry logic</h2>
-<p>Each chunk is retried independently with <strong>exponential backoff</strong>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>    <span class="n">Product</span><span class="p">,</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    <span class="n">records</span><span class="p">,</span>
-<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    <span class="n">chunk_size</span>  <span class="o">=</span> <span class="mi">500</span><span class="p">,</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>    <span class="n">retries</span>     <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>      <span class="c1"># up to 3 retries per chunk</span>
-<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>    <span class="n">retry_delay</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>    <span class="c1"># delays: 0.5s, 1.0s, 2.0s</span>
-<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="p">)</span>
-<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="c1"># If chunk 5 fails:</span>
-<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="c1"># → wait 0.5s, retry</span>
-<a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="c1"># → wait 1.0s, retry</span>
-<a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="c1"># → wait 2.0s, retry</span>
-<a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="c1"># → record as failed, continue with chunk 6</span>
+<p>Picture this: you kick off a bulk import of 50,000 rows split into 100
+chunks, and chunk 37 fails because of a one-second network blip — nothing
+actually wrong with your data. Without retries, that one hiccup would mark
+500 rows as permanently failed, even though trying again half a second
+later would have worked fine.</p>
+<p>That's what the <code>retries</code> option buys you: each chunk is retried
+independently, and if a retry succeeds, mydborm just moves on to the next
+chunk as if nothing happened. The delay between retries grows each time —
+this is called <strong>exponential backoff</strong>, and the idea is simple: if the
+first retry fails too, the problem is more likely to be a real outage
+than a one-off blip, so waiting a bit longer before trying again gives the
+database more time to recover instead of hammering it repeatedly:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>    <span class="n">Product</span><span class="p">,</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>    <span class="n">records</span><span class="p">,</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="n">chunk_size</span>  <span class="o">=</span> <span class="mi">500</span><span class="p">,</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>    <span class="n">retries</span>     <span class="o">=</span> <span class="mi">3</span><span class="p">,</span>      <span class="c1"># up to 3 retries per chunk</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="n">retry_delay</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>    <span class="c1"># delays: 0.5s, 1.0s, 2.0s</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="p">)</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="c1"># If chunk 5 fails:</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="c1"># → wait 0.5s, retry</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="c1"># → wait 1.0s, retry</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="c1"># → wait 2.0s, retry</span>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="c1"># → record as failed, continue with chunk 6</span>
 </code></pre></div>
+<p><code>retry_delay</code> is the <em>starting</em> delay in seconds — mydborm doubles it on
+each subsequent attempt (<code>retry_delay * 2^attempt</code>), so <code>retry_delay=0.5</code>
+with <code>retries=3</code> waits 0.5s, then 1.0s, then 2.0s before giving up on that
+chunk. Only after all retries for a chunk are exhausted does it get
+counted as failed; mydborm then moves on and keeps processing the
+remaining chunks rather than stopping the whole operation.</p>
 <h3 id="raise_on_error">raise_on_error</h3>
-<p>Stop immediately when any chunk fails:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">BulkInsertError</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">chunked_bulk_create</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
-<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span>
-<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>        <span class="n">Product</span><span class="p">,</span>
-<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>        <span class="n">records</span><span class="p">,</span>
-<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>        <span class="n">chunk_size</span>     <span class="o">=</span> <span class="mi">500</span><span class="p">,</span>
-<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>        <span class="n">raise_on_error</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>   <span class="c1"># stop on first failure</span>
-<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>    <span class="p">)</span>
-<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="k">except</span> <span class="n">BulkInsertError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Stopped at chunk failure:&quot;</span><span class="p">)</span>
-<a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Inserted: </span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">inserted</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Failed  : </span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">failed</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-<a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>    <span class="k">for</span> <span class="n">err</span> <span class="ow">in</span> <span class="n">e</span><span class="o">.</span><span class="n">errors</span><span class="p">:</span>
-<a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Error: </span><span class="si">{</span><span class="n">err</span><span class="p">[</span><span class="s1">&#39;error&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<p>By default, a failed chunk (after retries are exhausted) is just recorded
+in <code>result.errors</code> and the operation keeps going — you check
+<code>result.has_errors</code> afterward to see if anything went wrong. If you'd
+rather stop immediately the moment any chunk fails — for example because a
+failure usually means something is fundamentally broken (bad credentials,
+a table that doesn't exist) rather than a transient blip — pass
+<code>raise_on_error=True</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">BulkInsertError</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.bulk</span><span class="w"> </span><span class="kn">import</span> <span class="n">chunked_bulk_create</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>        <span class="n">Product</span><span class="p">,</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>        <span class="n">records</span><span class="p">,</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>        <span class="n">chunk_size</span>     <span class="o">=</span> <span class="mi">500</span><span class="p">,</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>        <span class="n">raise_on_error</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>   <span class="c1"># stop on first failure</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>    <span class="p">)</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="k">except</span> <span class="n">BulkInsertError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Stopped at chunk failure:&quot;</span><span class="p">)</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Inserted: </span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">inserted</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Failed  : </span><span class="si">{</span><span class="n">e</span><span class="o">.</span><span class="n">failed</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a>    <span class="k">for</span> <span class="n">err</span> <span class="ow">in</span> <span class="n">e</span><span class="o">.</span><span class="n">errors</span><span class="p">:</span>
+<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  Error: </span><span class="si">{</span><span class="n">err</span><span class="p">[</span><span class="s1">&#39;error&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div>
+<p>Even when it raises, the exception still tells you how many rows made it
+in <em>before</em> the failing chunk (<code>e.inserted</code>) — so you're not left
+guessing whether it's safe to just re-run the whole import from scratch.</p>
 <hr />
 <h2 id="performance-tips">Performance tips</h2>
 <h3 id="choose-the-right-chunk_size">Choose the right chunk_size</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Small records (a few fields) → larger chunks</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span><span class="n">User</span><span class="p">,</span> <span class="n">records</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="c1"># Large records (many fields, TEXT columns) → smaller chunks</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span><span class="n">Article</span><span class="p">,</span> <span class="n">records</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="c1"># Very large records (BLOBs, encrypted fields) → tiny chunks</span>
-<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span><span class="n">Document</span><span class="p">,</span> <span class="n">records</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<p>There's no single "correct" chunk size — it's a trade-off between fewer
+round trips (bigger chunks) and keeping each individual statement small
+enough to send quickly and retry cheaply if it fails (smaller chunks). As
+a starting point, scale it down as your rows get bigger or heavier:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Small records (a few fields) → larger chunks</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span><span class="n">User</span><span class="p">,</span> <span class="n">records</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">1000</span><span class="p">)</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="c1"># Large records (many fields, TEXT columns) → smaller chunks</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span><span class="n">Article</span><span class="p">,</span> <span class="n">records</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="c1"># Very large records (BLOBs, encrypted fields) → tiny chunks</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="n">result</span> <span class="o">=</span> <span class="n">chunked_bulk_create</span><span class="p">(</span><span class="n">Document</span><span class="p">,</span> <span class="n">records</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="benchmark-guide">Benchmark guide</h3>
+<p>Rough numbers to set expectations — actual timing depends on your
+database, network, row size, and indexes:</p>
 <table>
 <thead>
 <tr>
@@ -1933,19 +2106,26 @@ progress callbacks, and detailed result objects.</p>
 </tbody>
 </table>
 <h3 id="compare-bulk-vs-loop">Compare bulk vs loop</h3>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>
-<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="c1"># Slow — N separate INSERT statements</span>
-<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">records</span><span class="p">[:</span><span class="mi">1000</span><span class="p">]:</span>
-<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>    <span class="n">Product</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="o">**</span><span class="n">r</span><span class="p">)</span>
-<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loop: </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="o">-</span><span class="n">t0</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>   <span class="c1"># ~10s</span>
-<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>
-<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="c1"># Fast — 1 INSERT statement</span>
-<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
-<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a><span class="n">Product</span><span class="o">.</span><span class="n">bulk_create</span><span class="p">(</span><span class="n">records</span><span class="p">[:</span><span class="mi">1000</span><span class="p">])</span>
-<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Bulk: </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="o">-</span><span class="n">t0</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>   <span class="c1"># ~0.3s</span>
+<p>This is the difference that motivates everything on this page — the same
+1,000 rows, inserted two different ways:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="c1"># Slow — N separate INSERT statements (one round trip per row)</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">records</span><span class="p">[:</span><span class="mi">1000</span><span class="p">]:</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>    <span class="n">Product</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="o">**</span><span class="n">r</span><span class="p">)</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Loop: </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="o">-</span><span class="n">t0</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>   <span class="c1"># ~10s</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>
+<a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="c1"># Fast — 1 INSERT statement (one round trip total)</span>
+<a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a><span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a><span class="n">Product</span><span class="o">.</span><span class="n">bulk_create</span><span class="p">(</span><span class="n">records</span><span class="p">[:</span><span class="mi">1000</span><span class="p">])</span>
+<a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Bulk: </span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="o">-</span><span class="n">t0</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>   <span class="c1"># ~0.3s</span>
 </code></pre></div>
+<p>Same data, same database — roughly 30x faster just by batching the rows
+into one statement instead of looping. That gap only grows as your row
+count goes up, which is exactly why bulk operations (and their chunked
+versions, for when "one giant statement" itself becomes the bottleneck)
+exist.</p>
 
 
 

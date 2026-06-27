@@ -628,10 +628,49 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#filtering" class="md-nav__link">
+  <a href="#filtering-with-where" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Filtering
+        Filtering with .where()
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Filtering with .where()">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#or-conditions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OR conditions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#raw-sql-conditions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raw SQL conditions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#choosing-which-columns-come-back" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing which columns come back
       
     </span>
   </a>
@@ -639,21 +678,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#operators" class="md-nav__link">
+  <a href="#sorting-limit-and-offset" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Operators
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sorting-limit-offset" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sorting, limit, offset
+        Sorting, limit, and offset
       
     </span>
   </a>
@@ -698,6 +726,28 @@
     <span class="md-ellipsis">
       
         Subqueries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bulk-update-and-delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bulk update and delete
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pagination-helper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pagination helper
       
     </span>
   </a>
@@ -812,6 +862,34 @@
     
   
     Migrations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../db_migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
   
 
     
@@ -1308,10 +1386,49 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#filtering" class="md-nav__link">
+  <a href="#filtering-with-where" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Filtering
+        Filtering with .where()
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Filtering with .where()">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#or-conditions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OR conditions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#raw-sql-conditions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raw SQL conditions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#choosing-which-columns-come-back" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing which columns come back
       
     </span>
   </a>
@@ -1319,21 +1436,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#operators" class="md-nav__link">
+  <a href="#sorting-limit-and-offset" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Operators
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#sorting-limit-offset" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sorting, limit, offset
+        Sorting, limit, and offset
       
     </span>
   </a>
@@ -1384,6 +1490,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#bulk-update-and-delete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bulk update and delete
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pagination-helper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pagination helper
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1405,13 +1533,35 @@
 
 
 <h1 id="query-builder">Query builder</h1>
-<h2 id="filtering">Filtering</h2>
+<p><code>.filter()</code> and <code>.get()</code> are fine for simple lookups, but as soon as you need
+to combine several conditions, sort the results, page through them, or pull
+in data from another table, you need something more flexible. That's what
+the <strong>query builder</strong> is for.</p>
+<p>You start one by calling <code>.query()</code> on a model, then chain methods onto it
+to build up the query piece by piece. Nothing is sent to the database until
+you call a method that actually runs it — like <code>.all()</code>, <code>.first()</code>, or
+<code>.count()</code>. Up until that point you're just describing what you want:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;age__gt&quot;</span><span class="p">,</span> <span class="mi">18</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;email__like&quot;</span><span class="p">,</span> <span class="s2">&quot;%@example.com&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;id__in&quot;</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
 </code></pre></div>
-<h2 id="operators">Operators</h2>
+<p>Because every chain method (<code>.where()</code>, <code>.order_by()</code>, <code>.limit()</code>, ...)
+returns the query builder itself, you can keep tacking more conditions onto
+the end of the line, in whatever order makes sense to you.</p>
+<h2 id="filtering-with-where">Filtering with <code>.where()</code></h2>
+<p>The most common method you'll use is <code>.where()</code>. In its simplest form it
+checks a column for equality:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+</code></pre></div>
+<p>This translates to <code>WHERE active = 1</code>. To do anything other than a plain
+equality check — greater than, contains a substring, "is one of these
+values" — append a double-underscore suffix to the field name. mydborm reads
+that suffix and turns it into the matching SQL operator:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;age__gt&quot;</span><span class="p">,</span> <span class="mi">18</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;email__like&quot;</span><span class="p">,</span> <span class="s2">&quot;%@example.com&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;id__in&quot;</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">])</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+</code></pre></div>
+<p>Each call to <code>.where()</code> adds one more condition, and multiple conditions are
+combined with <code>AND</code> — so <code>.where("active", True).where("age__gt", 18)</code> means
+"active AND older than 18". The full set of suffixes you can use:</p>
 <table>
 <thead>
 <tr>
@@ -1454,31 +1604,129 @@
 </tr>
 <tr>
 <td><code>field__null</code></td>
-<td><code>IS NULL</code></td>
+<td><code>IS NULL</code> (pass <code>True</code>) or <code>IS NOT NULL</code> (pass <code>False</code>)</td>
 </tr>
 </tbody>
 </table>
-<h2 id="sorting-limit-offset">Sorting, limit, offset</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="s2">&quot;username&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">,</span> <span class="n">desc</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span><span class="o">.</span><span class="n">offset</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<h3 id="or-conditions">OR conditions</h3>
+<p>Everything passed to <code>.where()</code> is ANDed together. If you need "this AND
+(that OR the other)", use <code>.or_where()</code> instead — it supports the same
+operator suffixes as <code>.where()</code>, but groups its conditions together with
+<code>OR</code> and then ANDs that whole group onto the rest of the query:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">Order</span><span class="o">.</span><span class="n">query</span><span class="p">()</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>     <span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;user_id&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>     <span class="o">.</span><span class="n">or_where</span><span class="p">(</span><span class="s2">&quot;status&quot;</span><span class="p">,</span> <span class="s2">&quot;pending&quot;</span><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>     <span class="o">.</span><span class="n">or_where</span><span class="p">(</span><span class="s2">&quot;status&quot;</span><span class="p">,</span> <span class="s2">&quot;retry&quot;</span><span class="p">)</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>     <span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="c1"># WHERE user_id = 5 AND (status = &#39;pending&#39; OR status = &#39;retry&#39;)</span>
 </code></pre></div>
+<h3 id="raw-sql-conditions">Raw SQL conditions</h3>
+<p>The operator suffixes above cover most everyday filtering, but sometimes you
+need a SQL expression that doesn't map to a simple <code>column op value</code> — date
+functions, full-text search, JSON field extraction. <code>.where_raw()</code> is an
+escape hatch for exactly that: you write the SQL fragment yourself, using
+<code>%s</code> as a placeholder anywhere you need to insert a value safely (never
+paste user input directly into the string):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">Order</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where_raw</span><span class="p">(</span><span class="s2">&quot;YEAR(created_at) = </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="mi">2024</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">Post</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where_raw</span><span class="p">(</span><span class="s2">&quot;MATCH(body) AGAINST(</span><span class="si">%s</span><span class="s2"> IN BOOLEAN MODE)&quot;</span><span class="p">,</span> <span class="s2">&quot;+python&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Mixed with a normal where()</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">Order</span><span class="o">.</span><span class="n">query</span><span class="p">()</span> \
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>     <span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;user_id&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span> \
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>     <span class="o">.</span><span class="n">where_raw</span><span class="p">(</span><span class="s2">&quot;DATEDIFF(NOW(), created_at) &lt; </span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">,</span> <span class="mi">30</span><span class="p">)</span> \
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>     <span class="o">.</span><span class="n">all</span><span class="p">()</span>
+</code></pre></div>
+<p><code>.or_where_raw()</code> is the same idea, but joined with <code>OR</code> instead of <code>AND</code>,
+just like <code>.or_where()</code>.</p>
+<h2 id="choosing-which-columns-come-back">Choosing which columns come back</h2>
+<p>By default a query returns every column. If you only need a couple of
+fields, <code>.select()</code> narrows the <code>SELECT</code> clause — useful for trimming down
+how much data comes back over the wire:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;name&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="c1"># SELECT id, name FROM users WHERE active = 1</span>
+</code></pre></div>
+<p><code>.distinct()</code> adds <code>DISTINCT</code>, so you only get unique rows back (handy when
+combined with <code>.select()</code> to find, say, every distinct country your users
+are in):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">&quot;country&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">distinct</span><span class="p">()</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+</code></pre></div>
+<h2 id="sorting-limit-and-offset">Sorting, limit, and offset</h2>
+<p><code>.order_by()</code> sorts the results; pass <code>desc=True</code> to sort descending instead
+of the default ascending. <code>.limit()</code> caps how many rows come back, and
+<code>.offset()</code> skips a number of rows before collecting them — the two
+together are how you implement "page 3 of results":</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="s2">&quot;username&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">,</span> <span class="n">desc</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span><span class="o">.</span><span class="n">offset</span><span class="p">(</span><span class="mi">20</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+</code></pre></div>
+<p>If you're paging through results often, see <code>.paginate()</code> below — it
+wraps limit/offset into a single call that also tells you how many pages
+there are in total.</p>
 <h2 id="aggregates">Aggregates</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">avg</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span>
+<p>When you want a single number back instead of a list of rows — a count, a
+total, an average — use one of the aggregate methods. These run the query
+and return a plain Python value, not a list:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">avg</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span>
 </code></pre></div>
+<p><code>.exists()</code> is a shortcut for "does at least one row match?" — it's cheaper
+than fetching rows yourself just to check if the list is empty:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;email&quot;</span><span class="p">,</span> <span class="s2">&quot;a@example.com&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">()</span>  <span class="c1"># True / False</span>
+</code></pre></div>
+<p><code>.first()</code> runs the query with an implicit <code>LIMIT 1</code> and returns either the
+single matching row or <code>None</code>, which is handy when you expect at most one
+result but don't want to write <code>.limit(1).all()[0]</code> and handle the empty-list
+case yourself.</p>
 <h2 id="joins">JOINs</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">inner_join</span><span class="p">(</span><span class="s2">&quot;orders&quot;</span><span class="p">,</span> <span class="s2">&quot;users.id = orders.user_id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">left_join</span><span class="p">(</span><span class="s2">&quot;orders&quot;</span><span class="p">,</span> <span class="s2">&quot;users.id = orders.user_id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<p>A JOIN lets you pull in columns from a related table in the same query,
+instead of querying it separately and stitching the results together in
+Python. <code>.inner_join()</code> only returns rows that have a match in both tables;
+<code>.left_join()</code> keeps every row from the left-hand table even if there's no
+matching row on the right (missing columns come back as <code>NULL</code>):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">inner_join</span><span class="p">(</span><span class="s2">&quot;orders&quot;</span><span class="p">,</span> <span class="s2">&quot;users.id = orders.user_id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">left_join</span><span class="p">(</span><span class="s2">&quot;orders&quot;</span><span class="p">,</span> <span class="s2">&quot;users.id = orders.user_id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
 </code></pre></div>
+<p><code>.right_join()</code> is also available for the mirror-image case. The second
+argument to each is the join condition — the SQL that says how the two
+tables relate.</p>
 <h2 id="group-by-having">GROUP BY + HAVING</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">Order</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="s2">&quot;user_id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">having</span><span class="p">(</span><span class="s2">&quot;COUNT(*) &gt; 5&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<p><code>.group_by()</code> collapses rows that share the same value in a column into a
+single group — typically so you can run an aggregate (like <code>COUNT</code>) per
+group instead of over the whole table. <code>.having()</code> then filters <em>those
+groups</em> (as opposed to <code>.where()</code>, which filters individual rows before
+grouping happens):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">Order</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="s2">&quot;user_id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">having</span><span class="p">(</span><span class="s2">&quot;COUNT(*) &gt; 5&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
 </code></pre></div>
+<p>That example reads as: "group orders by user, then only keep the users who
+have more than 5 orders."</p>
 <h2 id="subqueries">Subqueries</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">active_ids</span> <span class="o">=</span> <span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">subquery</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">Order</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;user_id__in&quot;</span><span class="p">,</span> <span class="n">active_ids</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<p>A subquery is a query nested inside another query — useful when the list of
+values you want to filter by isn't something you already have in Python,
+but is itself the result of a database lookup. <code>.subquery()</code> turns a query
+builder chain into a SQL fragment you can drop into another <code>.where()</code> call
+instead of running it and collecting the results yourself:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">active_ids</span> <span class="o">=</span> <span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">subquery</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">Order</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;user_id__in&quot;</span><span class="p">,</span> <span class="n">active_ids</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+</code></pre></div>
+<p>This runs as a single SQL statement — "orders belonging to any currently
+active user" — rather than first fetching all active user IDs into Python
+and then querying orders with that list.</p>
+<h2 id="bulk-update-and-delete">Bulk update and delete</h2>
+<p><code>.update()</code> and <code>.delete()</code> run directly against whatever rows the rest of
+the chain matches, without you having to load them into Python first:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s2">&quot;guest&quot;</span><span class="p">)</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;status&quot;</span><span class="p">,</span> <span class="s2">&quot;cancelled&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">delete</span><span class="p">()</span>
+</code></pre></div>
+<p>Both return the number of rows affected.</p>
+<h2 id="pagination-helper">Pagination helper</h2>
+<p>If you're building something like a paginated table or API endpoint,
+<code>.paginate()</code> saves you from manually juggling <code>.limit()</code>/<code>.offset()</code> and a
+separate <code>.count()</code> call — it returns the page of data plus the metadata you
+need to render "page 2 of 7":</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">paginate</span><span class="p">(</span><span class="n">page</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">per_page</span><span class="o">=</span><span class="mi">20</span><span class="p">)</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="c1"># {&quot;data&quot;: [...], &quot;total&quot;: 137, &quot;page&quot;: 2, &quot;per_page&quot;: 20, &quot;pages&quot;: 7}</span>
 </code></pre></div>
 
 
