@@ -1,26 +1,74 @@
 # Security
 
-mydborm provides two security-focused field types:
+Some columns shouldn't be stored as plain, readable text — passwords,
+API keys, tokens, social security numbers. If your database is ever
+leaked, copied, or just looked at by someone who shouldn't have access,
+plain-text sensitive data is the difference between "no big deal" and
+"every user needs to change their password right now."
 
-- **PasswordField** — one-way bcrypt hashing for user passwords
-- **EncryptedField** — two-way AES encryption for sensitive data
+mydborm gives you two field types for this, and picking the right one
+matters more than it might seem at first:
+
+- **`PasswordField`** — scrambles the value in a way that **cannot be
+  undone**. You can check whether a guess is correct, but you (or
+  anyone, including someone who steals your database) can never
+  recover the original password from what's stored. This is called
+  **one-way hashing**.
+- **`EncryptedField`** — scrambles the value in a way that **can be
+  undone**, but only by someone who has the secret key. This is called
+  **two-way encryption**.
+
+That distinction — "can never get it back" vs. "can get it back if you
+have the key" — is the most important thing to understand on this
+page, so it's worth repeating: use `PasswordField` for things you only
+ever need to *check* (does this password match?), and use
+`EncryptedField` for things you need to *read back later* (what is this
+user's API key, so I can call a third-party service with it?).
 
 ---
 
 ## Installation
 
+Both field types need extra libraries that aren't installed with
+mydborm by default, since not every project needs them:
+
 ```bash
 pip install mydborm[security]
 ```
 
-This installs `bcrypt` and `cryptography` as extra dependencies.
+This installs two packages:
+
+- **bcrypt** — the library that does the one-way hashing for
+  `PasswordField`.
+- **cryptography** — the library that does the two-way encryption for
+  `EncryptedField`.
 
 ---
 
-## PasswordField — bcrypt hashing
+## PasswordField — for things you only ever verify
 
-Use `PasswordField` for **user passwords**. Passwords are hashed using bcrypt
-and **cannot be decrypted** — you can only verify them.
+Use `PasswordField` for **user login passwords** (or anything else
+where all you ever need to know is "does this match what I have on
+file?" — PINs, recovery codes, etc).
+
+### Why not just store the password as text?
+
+If you store a password as plain text and your database is ever
+exposed, every user's actual password is exposed too — and since
+people reuse passwords across sites, that's bad even for accounts
+outside your app. The standard fix is to never store the actual
+password at all. Instead, you run it through a one-way function (a
+**hash**) that scrambles it into something unrecognizable, and you
+store *that* instead. "One-way" means there's no function that takes
+the scrambled output and produces the original password back — the
+scrambling is designed to be effectively irreversible, even for you,
+even with the database in hand.
+
+`PasswordField` does this scrambling using an algorithm called
+**bcrypt**, which is specifically designed for passwords (it's
+deliberately slow, which makes it expensive for an attacker to guess
+millions of passwords per second if they ever get a copy of your
+database).
 
 ### Define the field
 
@@ -39,6 +87,9 @@ class User(BaseModel):
 User.create_table()
 ```
 
+A `PasswordField` is declared just like any other field — there's
+nothing extra to configure to get the basic behavior.
+
 **SQL generated:**
 
 ```sql
@@ -49,9 +100,16 @@ password VARCHAR(255) NOT NULL
 password VARCHAR(255) NOT NULL
 ```
 
+The column is just a `VARCHAR(255)` under the hood — to the database,
+it looks like any other text column. The "hashing" part is something
+mydborm does in Python before the value ever reaches the database; the
+database itself has no idea it's storing a password.
+
 ### Create a user
 
-The password is **automatically hashed** on `create()` — you never store plain text:
+The password is **automatically hashed** the moment you call
+`create()` — you never have to call a hashing function yourself, and
+the plain text never gets written to the database:
 
 ```python
 uid = User.create(
@@ -66,7 +124,19 @@ print(user["password"])
 print(user["password"] == "mysecretpassword")   # False — never plain text
 ```
 
+That long string starting with `$2b$12$...` is the bcrypt hash. It's
+not meant to be read by a human — it's the scrambled result, plus a bit
+of bookkeeping bcrypt needs (explained below) to be able to check a
+password against it later.
+
 ### Verify a password (login)
+
+Since you can't "unscramble" a hash back into the original password,
+checking a login attempt works differently than you might expect:
+instead of decrypting the stored value and comparing it to what the
+user typed, you hash what the user typed using the *same* method and
+compare the two hashes. `PasswordField.verify()` does exactly that for
+you:
 
 ```python
 def login(username, plain_password):
@@ -86,7 +156,16 @@ ok, msg = login("alice", "wrongpassword")
 print(ok, msg)   # False Wrong password
 ```
 
+`PasswordField.verify(plain_password, hashed_password)` returns `True`
+or `False` — it never reveals or reconstructs the original password,
+it just tells you whether the one typed in matches the one that was
+originally hashed.
+
 ### Change password
+
+The same auto-hashing happens on `update()`, so changing a password
+looks just like setting one for the first time — you still verify the
+*old* password first to make sure the request is legitimate:
 
 ```python
 def change_password(user_id, old_password, new_password):
@@ -104,7 +183,12 @@ def change_password(user_id, old_password, new_password):
 change_password(uid, "mysecretpassword", "newstrongerpassword!")
 ```
 
-### Hash password manually
+### Hash a password manually
+
+Most of the time `create()` and `update()` handle hashing for you
+automatically. But if you ever need the hash itself — for a script, a
+test, or a one-off migration — you can call the hashing function
+directly without going through a model at all:
 
 ```python
 # Hash without storing
@@ -118,7 +202,13 @@ print(ok)   # True
 
 ### Configure work factor (rounds)
 
-Higher rounds = slower hashing = more secure. Default is 12.
+Bcrypt has a "work factor" called **rounds** that controls how many
+times the scrambling step repeats internally. More rounds means the
+hash takes longer to compute — which sounds like a downside, but it's
+actually the whole point: it also makes it proportionally slower for
+an attacker trying to guess passwords by brute force. The default is
+12 rounds, which is a good balance of "fast enough for a real login
+form" and "slow enough to discourage guessing."
 
 ```python
 class User(BaseModel):
@@ -137,24 +227,63 @@ class User(BaseModel):
 | 12 | ~400ms | **Recommended** |
 | 14 | ~1.5s | High-security |
 
+Use a low value like `rounds=4` only in your test suite, where you're
+hashing passwords over and over and don't want the test run to slow
+down — never in production.
+
 ### How bcrypt works
-- Each hash includes a **random salt** — same password hashes differently each time
-- The **rounds** parameter controls how many iterations are run
-- Stored hash includes the rounds and salt — no extra columns needed
-- **Cannot be reversed** — only verification is possible
+
+A couple of things that often confuse people new to password hashing:
+
+- Each hash includes a **random salt** — a random chunk of data mixed
+  in before scrambling, so the *same* password hashed twice produces
+  two *different*-looking hashes. This stops an attacker from spotting
+  "these two users have the same password" just by comparing the
+  stored hashes.
+- The salt and the rounds value are both saved as part of the stored
+  hash string itself — that's why you don't need a separate column for
+  them; the one `VARCHAR(255)` has everything `verify()` needs.
+- There is no "unhash" function. The only thing you can ever do with a
+  stored hash is check whether a candidate password produces a
+  matching hash — you can never work backwards to the original
+  password.
 
 ---
 
-## EncryptedField — AES encryption
+## EncryptedField — for things you need to read back later
 
-Use `EncryptedField` for **data you need to retrieve** — API keys, tokens,
-SSNs, credit card numbers, personal data.
+Use `EncryptedField` for data where, unlike a password, you genuinely
+need the original value back at some point — API keys you'll send to a
+third-party service, OAuth tokens, social security numbers, credit card
+numbers, or any other personal data your app needs to display or reuse
+later.
+
+This uses **encryption** rather than hashing. The difference: encryption
+is two-way by design. Anyone holding the correct **secret key** (a
+piece of data that acts like a password for the encryption itself) can
+turn the scrambled value back into the original. That's exactly what
+you want for an API key — you need to get the real key back out so you
+can actually use it to call an API — but it's the opposite of what you
+want for a login password, where letting anyone reverse it would defeat
+the purpose.
+
+Because encryption is reversible, the entire security of the system
+comes down to one thing: keeping the secret key safe.
 
 !!! warning "Keep your key safe"
-    If you lose your encryption key, **all encrypted data is unrecoverable**.
-    Store keys in environment variables or a secrets manager — never in code.
+    If you lose your encryption key, **all encrypted data is
+    unrecoverable** — there is no backdoor or recovery option, by
+    design. And if someone else gets a copy of your key (and your
+    database), they can decrypt everything just as easily as you can.
+    Store keys in environment variables or a secrets manager — never
+    written directly in your source code.
 
 ### Generate a key
+
+Before you can encrypt anything, you need a secret key. mydborm gives
+you a helper to generate a properly random one — don't try to make one
+up yourself (e.g. typing a memorable phrase), since that's much easier
+for an attacker to guess than a truly random key:
 
 ```python
 from mydborm import EncryptedField
@@ -167,6 +296,13 @@ print(key)
 # Store in .env file:
 # ENCRYPTION_KEY=dBF_6PJ5hRkzGjQ8N9TmY2w4sIoXcVeA3nKuLbEZWp0=
 ```
+
+Generate this key once for your application and keep using the same
+one — if you generate a new key later without migrating your existing
+encrypted data first, you'll permanently lose access to anything
+encrypted with the old key. (See [Rotate encryption keys
+periodically](#rotate-encryption-keys-periodically) below for how to
+switch keys safely.)
 
 ### Define the model
 
@@ -188,6 +324,13 @@ class APICredential(BaseModel):
 APICredential.create_table()
 ```
 
+Each `EncryptedField` needs the secret key passed in as `secret_key=`
+— that's how mydborm knows what to encrypt and decrypt with for that
+particular field. Reading the key from an environment variable (as
+shown above with `os.environ["ENCRYPTION_KEY"]`) rather than typing it
+directly into your source file means the key never ends up committed
+to version control by accident.
+
 **SQL generated:**
 
 ```sql
@@ -202,9 +345,16 @@ api_secret TEXT
 webhook    TEXT
 ```
 
+Like `PasswordField`, the database column itself is just plain text
+(`TEXT` this time, since encrypted values are longer than a bcrypt
+hash) — the encryption and decryption happen entirely in Python,
+outside the database.
+
 ### Store credentials
 
-Values are **automatically encrypted** on `create()`:
+Values are **automatically encrypted** the moment you call `create()`
+— you pass in the real value, and mydborm encrypts it before it's ever
+written to the database:
 
 ```python
 cid = APICredential.create(
@@ -221,7 +371,18 @@ print(cred["api_key"])
 print(cred["api_key"] == "sk_live_51abc123xyz")   # False — encrypted in DB
 ```
 
+The scrambled text you see (starting with `gAAAAA...`) is called
+**ciphertext** — the encrypted form of your original value, sometimes
+called the **plaintext**. Unlike a password hash, ciphertext isn't a
+dead end: anyone with the right key can turn it back into the original
+value, which is the whole point of choosing encryption here instead of
+hashing.
+
 ### Decrypt values
+
+Because encryption is reversible, mydborm gives you three equivalent
+ways to get the original value back, depending on what's most
+convenient in your code:
 
 ```python
 # Method 1 — static method
@@ -238,7 +399,15 @@ cipher = EncryptedField.encrypt("my_secret_value", secret_key=KEY)
 plain  = EncryptedField.decrypt(cipher, secret_key=KEY)
 ```
 
+In every case, you need to supply the same `secret_key` that was used
+to encrypt the value in the first place — decrypting with the wrong key
+will fail rather than silently produce garbage.
+
 ### Full workflow example
+
+Here's a more complete, realistic example — storing OAuth tokens after
+a user connects a third-party account, then retrieving and decrypting
+the access token later to actually call that provider's API:
 
 ```python
 import os
@@ -286,17 +455,37 @@ access = get_access_token(1, "google")
 print(access)   # ya29.abc...
 ```
 
-### How Fernet encryption works
-- Uses **Fernet** — a safe, authenticated encryption scheme
-- Each encryption uses a **random IV** — same value encrypts differently each time
-- Includes **HMAC authentication** — tampered ciphertext raises an error
-- Ciphertext is base64 — safe to store in TEXT columns
+### How the encryption works
+
+`EncryptedField` uses a scheme called **Fernet**, which bundles
+together a few standard cryptography building blocks so you don't have
+to assemble them yourself:
+
+- The underlying scrambling algorithm is **AES** (a widely used,
+  well-trusted encryption standard) — this is the part that actually
+  transforms your plaintext into ciphertext and back.
+- Like bcrypt, each encryption uses fresh random data mixed in (an
+  **IV**, short for "initialization vector") — so encrypting the exact
+  same value twice produces two different-looking ciphertexts.
+- Fernet also attaches an **authentication tag** (using something
+  called HMAC) to every ciphertext. This means that if someone tampers
+  with the stored ciphertext — even changing a single character —
+  decrypting it raises an error instead of silently returning corrupted
+  or wrong data.
+- The final ciphertext is encoded as base64 (safe, plain ASCII text),
+  so it stores cleanly in a normal `TEXT` column without any special
+  handling.
 
 ---
 
 ## Security best practices
 
 ### Use environment variables for keys
+
+Whether it's your database password or your encryption key, the rule
+is the same: secrets belong in environment variables (or a dedicated
+secrets manager for production systems), never typed directly into a
+`.py` file that gets committed to git.
 
 ```python
 # .env file (never commit this!)
@@ -312,6 +501,12 @@ KEY = os.environ["ENCRYPTION_KEY"]
 
 ### Never log plain passwords or decrypted values
 
+It's easy to accidentally leak a secret through a `print()` or a log
+line you added for debugging and forgot to remove. Logs are often kept
+around for a long time and read by more people than your database is —
+so anything written to a log should already be safe to show to anyone
+who can read your logs.
+
 ```python
 # BAD
 print(f"User logged in with password: {plain_password}")
@@ -323,6 +518,14 @@ logger.info(f"API key for service {service} retrieved (length={len(decrypted_key
 ```
 
 ### Rotate encryption keys periodically
+
+"Rotating" a key means switching to a new one — good practice to limit
+how much damage a leaked key can do, since an old key that's no longer
+in use can't decrypt anything new. Because `EncryptedField` is
+reversible, you can do this safely: decrypt everything with the old
+key, then re-encrypt it with the new one, without losing any data
+(something that's simply not possible with one-way `PasswordField`
+hashes).
 
 ```python
 def rotate_encryption_key(old_key, new_key):
@@ -347,9 +550,13 @@ def rotate_encryption_key(old_key, new_key):
 
 ### PasswordField vs EncryptedField — choosing the right one
 
+The core question to ask yourself: **will I ever need to see the
+original value again?** If no, hash it with `PasswordField`. If yes,
+encrypt it with `EncryptedField`.
+
 | Use case | Field | Why |
 |---|---|---|
-| User login passwords | `PasswordField` | One-way — even you can't read it |
+| User login passwords | `PasswordField` | One-way — even you can't read it back |
 | API keys / tokens | `EncryptedField` | Need to retrieve and use them |
 | OAuth access tokens | `EncryptedField` | Need to send to external APIs |
 | Credit card numbers | `EncryptedField` | Need to display last 4 digits |

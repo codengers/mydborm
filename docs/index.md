@@ -7,45 +7,68 @@
 [![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen)](https://github.com/codengers/mydborm)
 [![PyPI Downloads](https://img.shields.io/pypi/dm/mydborm)](https://pypi.org/project/mydborm/)
 
-> **Lightweight Python ORM for MySQL and YugabyteDB.**
-> Ship database-backed apps and data pipelines in minutes — not hours.
+**mydborm is a Python library that lets you work with a database using
+plain Python objects instead of writing raw SQL.**
 
-**mydborm** is a production-grade lightweight Python ORM for **MySQL 8+**, **PostgreSQL**, and **YugabyteDB (YSQL)**.
+That kind of library is called an **ORM** — "Object-Relational Mapper."
+Instead of writing:
 
-Zero bloat. Declarative models. Full CRUD. 29 field types. Bulk ops. Async. Migrations. Security. CLI.
+```sql
+INSERT INTO users (username, email) VALUES ('alice', 'alice@example.com');
+```
 
-**Key features:**
+you write:
 
-- **Lightweight & fast** — 47 KB, two runtime dependencies, sub-millisecond query overhead
-- **Native Distributed SQL** — purpose-built dialect for YugabyteDB; same model code runs on MySQL dev or distributed YugabyteDB prod
-- **29 field types** — from `TinyIntField` to `EncryptedField` (AES-128) and `PasswordField` (bcrypt)
-- **Bulk operations** — chunked `bulk_create / bulk_update / bulk_delete` with retry and progress callbacks
-- **Mixins** — `SoftDeleteMixin`, `AuditMixin`, `TimestampMixin` in one line
-- **Async support** — `AsyncBaseModel` via `aiomysql` and `aiopg` for FastAPI
-- **QueryBuilder** — `where()`, `or_where()`, `select()`, `distinct()`, `update()`, `delete()`, `paginate()`, `group_by()`, `having()`, joins, subqueries
+```python
+User.create(username="alice", email="alice@example.com")
+```
+
+Same result, but it reads like normal Python, gets type-checked and
+validated before it ever touches the database, and doesn't require you
+to hand-write SQL strings throughout your codebase.
+
+mydborm works with **MySQL 8+**, **PostgreSQL**, and **YugabyteDB**
+(a distributed database that speaks the PostgreSQL protocol). You write
+your model once, and the same code runs against any of the three —
+handy if you develop against MySQL locally but deploy to YugabyteDB in
+production, or vice versa.
+
+If you're brand new to mydborm, the [Quickstart](guide/quickstart.md)
+walks through defining a model and running your first queries in a few
+minutes. This page is a tour of what's available.
 
 ---
 
 ## Install
 
 ```bash
-pip install mydborm                      # core ORM
-pip install mydborm[cli]                 # + CLI commands
-pip install mydborm[async]               # + async support
-pip install mydborm[security]            # + bcrypt + AES encryption
-pip install mydborm[dev,cli,async,security]  # everything
+pip install mydborm                          # core ORM — works right away
+pip install mydborm[cli]                     # + the `mydborm` command-line tool
+pip install mydborm[async]                   # + async/await support (for FastAPI etc.)
+pip install mydborm[security]                # + password hashing & field encryption
+pip install mydborm[dev,cli,async,security]  # everything, useful for contributing
 ```
+
+If you only need the basics, `pip install mydborm` is enough — the
+extras (`cli`, `async`, `security`) pull in additional dependencies
+only used by those specific features, so you don't have to install
+things you won't use.
 
 ---
 
-## 60-second quickstart
+## A first look
+
+This is the entire lifecycle of a simple `User` model — connect,
+define, create the table, and use it:
 
 ```python
-from mydborm import db, BaseModel, IntField, StrField, BoolField, FloatField
+from mydborm import db, BaseModel, IntField, StrField, BoolField
 from mydborm import PasswordField, EmailValidator, RangeValidator
 
+# 1. Tell mydborm which database to talk to.
+#    "dialect" just means which database engine — "mysql", "postgres", or "yugabyte".
 db.configure(
-    dialect  = "mysql",       # or "yugabyte"
+    dialect  = "mysql",
     host     = "127.0.0.1",
     port     = 3306,
     user     = "root",
@@ -54,6 +77,8 @@ db.configure(
     charset  = "utf8mb4",
 )
 
+# 2. Describe your table as a Python class.
+#    Each Field below is one column — it also validates values for you.
 class User(BaseModel):
     __tablename__ = "users"
     id       = IntField(primary_key=True)
@@ -62,25 +87,25 @@ class User(BaseModel):
                         validators=[EmailValidator()])
     age      = IntField(nullable=True,
                         validators=[RangeValidator(min_val=13, max_val=120)])
-    password = PasswordField(nullable=False)
+    password = PasswordField(nullable=False)   # stored as a bcrypt hash, never plain text
     active   = BoolField(default=True)
 
+# 3. Create the actual table in the database (run this once).
 User.create_table()
 
-# Create — password auto-hashed, email validated
+# 4. Use it like a normal Python object.
 uid = User.create(
     username = "alice",
     email    = "alice@example.com",
     age      = 28,
-    password = "mysecretpass",
+    password = "mysecretpass",   # hashed automatically before it's stored
 )
 
-# Login verification
 user = User.get(id=uid)
 if PasswordField.verify("mysecretpass", user["password"]):
     print("Login successful!")
 
-# Query
+# 5. Query with method chaining instead of writing SQL.
 active_users = (User.query()
                     .where("active", True)
                     .order_by("username")
@@ -88,92 +113,72 @@ active_users = (User.query()
                     .all())
 ```
 
----
+A few things worth calling out for anyone new to this:
 
-## Features
+- `db.configure(...)` only needs to run once, usually when your app starts.
+- Each `Field` (`IntField`, `StrField`, `BoolField`, ...) describes one
+  database column **and** validates Python values before they're saved —
+  if you try to save `age=200`, the `RangeValidator` above raises an
+  error instead of silently writing bad data.
+- `User.create_table()` only needs to run once per database (or each
+  time your schema changes) — it's not something you call on every
+  request.
+- Everything after that — `.create()`, `.get()`, `.query()...` — is
+  what you'll actually use day-to-day.
 
-| Feature | Status | Since |
-|---|---|---|
-| Declarative models | ✅ | v0.2 |
-| 29 field types (10 core + 17 extended + 2 security) | ✅ | v1.2 |
-| Full CRUD — create, get, all, filter, update, delete | ✅ | v0.2 |
-| QueryBuilder — where, join, group_by, having, subquery | ✅ | v0.3/v0.8 |
-| Relationships — has_many, belongs_to, many_to_many | ✅ | v0.3 |
-| Lazy + eager loading | ✅ | v0.6 |
-| Session — identity map, change tracking, unit of work | ✅ | v0.6 |
-| Bulk operations with chunking + retry + BulkResult | ✅ | v0.4/v0.5 |
-| Transactions + savepoints + nested transactions | ✅ | v0.5 |
-| Schema migrations + auto-generation | ✅ | v0.2/v0.8 |
-| Custom validators — email, url, regex, range, length, choice | ✅ | v0.7 |
-| PasswordField — bcrypt one-way hashing | ✅ | v1.2 |
-| EncryptedField — AES two-way encryption | ✅ | v1.2 |
-| Async support — aiomysql + aiopg | ✅ | v0.4 |
-| Connection pooling + ping + reconnect | ✅ | v0.4 |
-| MySQL 8+ + YugabyteDB (YSQL) dialect support | ✅ | v0.4 |
-| UTF-8 / unicode support | ✅ | v0.5 |
-| Rich CLI — 7 commands | ✅ | v0.2 |
-| 658 tests — 88% coverage | ✅ | v1.2 |
-| Python 3.9, 3.10, 3.11, 3.12 | ✅ | v0.3 |
+Continue with the [Quickstart](guide/quickstart.md) for a slower,
+step-by-step walkthrough, or jump straight to the topic you need in
+the **Guide** section in the sidebar.
 
 ---
 
-## Field types
+## What's included
 
-### Core fields (v0.2+)
+| Feature | What it gives you |
+|---|---|
+| Declarative models | Define a table as a Python class instead of SQL DDL |
+| 29 field types | Typed columns — from `IntField` to `PasswordField` (bcrypt) and `EncryptedField` (AES) — see [Fields](guide/fields.md) |
+| Full CRUD | `.create()`, `.get()`, `.all()`, `.filter()`, `.update()`, `.delete()` |
+| QueryBuilder | Chainable `.where()`, `.order_by()`, `.limit()`, joins, `group_by`, subqueries — see [Query Builder](guide/query_builder.md) |
+| Relationships | `has_many`, `belongs_to`, `many_to_many`, with lazy or eager loading — see [Relationships](guide/relationships.md) |
+| Sessions | Track changes to several objects and save them together — see [Session](guide/session.md) |
+| Bulk operations | Insert/update/delete thousands of rows in safe chunks, with automatic retry — see [Bulk Operations](guide/bulk_ops.md) |
+| Transactions | Group statements so they all succeed or all roll back together — see [Transactions](guide/transactions.md) |
+| Schema migrations | Detect model changes and generate the SQL to apply them — see [Migrations](guide/migrations.md) |
+| Database-to-database migration | Move schema + data between MySQL, YugabyteDB, and PostgreSQL — see [Database Migration](guide/db_migration.md) |
+| Validators | Built-in email/URL/range/length/choice checks, or write your own — see [Validators](guide/validators.md) |
+| Security fields | Password hashing (bcrypt) and two-way field encryption (AES) — see [Security](guide/security.md) |
+| Async support | `AsyncBaseModel` for use with FastAPI and other async frameworks — see [Async](guide/async.md) |
+| CLI | A `mydborm` command-line tool for connecting, inspecting, and migrating without writing a script — see [CLI](guide/cli.md) |
+| Custom exceptions | Specific, catchable error types instead of generic exceptions — see [Exceptions](guide/exceptions.md) |
 
-| Field | MySQL | YugabyteDB |
-|---|---|---|
-| `IntField` | `INT` | `INTEGER` |
-| `StrField(max_length)` | `VARCHAR(n)` | `VARCHAR(n)` |
-| `TextField` | `TEXT` | `TEXT` |
-| `BoolField` | `TINYINT(1)` | `BOOLEAN` |
-| `FloatField` | `FLOAT` | `FLOAT` |
-| `DecimalField(p,s)` | `DECIMAL(p,s)` | `DECIMAL(p,s)` |
-| `DateField` | `DATE` | `DATE` |
-| `DateTimeField` | `DATETIME` | `TIMESTAMP` |
-| `JSONField` | `JSON` | `JSONB` |
-| `ForeignKeyField` | `INT` | `INTEGER` |
-
-### Extended fields (v1.1+)
-
-| Field | MySQL | YugabyteDB |
-|---|---|---|
-| `TinyIntField` | `TINYINT` | `SMALLINT` |
-| `SmallIntField` | `SMALLINT` | `SMALLINT` |
-| `BigIntField` | `BIGINT` | `BIGINT` |
-| `UnsignedBigIntField` | `BIGINT UNSIGNED` | `NUMERIC(20)` |
-| `DoubleField` | `DOUBLE` | `DOUBLE PRECISION` |
-| `BitField(n)` | `BIT(n)` | `BIT(n)` |
-| `CharField(n)` | `CHAR(n)` | `CHAR(n)` |
-| `TinyTextField` | `TINYTEXT` | `TEXT` |
-| `MediumTextField` | `MEDIUMTEXT` | `TEXT` |
-| `LongTextField` | `LONGTEXT` | `TEXT` |
-| `BinaryField(n)` | `BINARY(n)` | `BYTEA` |
-| `VarBinaryField(n)` | `VARBINARY(n)` | `BYTEA` |
-| `BlobField` | `BLOB` | `BYTEA` |
-| `TimeField` | `TIME` | `TIME` |
-| `TimestampField` | `TIMESTAMP` | `TIMESTAMPTZ` |
-| `EnumField(choices)` | `ENUM(...)` | `VARCHAR(n)` |
-| `SetField(choices)` | `SET(...)` | `TEXT[]` |
-
-### Security fields (v1.2+)
-
-| Field | Storage | Algorithm |
-|---|---|---|
-| `PasswordField` | `VARCHAR(255)` | bcrypt |
-| `EncryptedField` | `TEXT` | AES-128-CBC (Fernet) |
+mydborm currently has **1,000+ tests** with **96% coverage**, and is
+tested against **Python 3.9, 3.10, 3.11, and 3.12**.
 
 ---
 
-## Why mydborm?
+## Why mydborm instead of a bigger ORM?
+
+If you've heard of SQLAlchemy or Peewee, here's the short version of
+how mydborm compares. None of these are "better" in every way — it's a
+tradeoff between flexibility and simplicity.
 
 | | mydborm | SQLAlchemy | Peewee |
 |---|---|---|---|
 | Install size | **47 KB** | 3 MB | 800 KB |
-| MySQL + YugabyteDB | **✅** | ✅ | ✅ |
-| Async built-in | **✅** | needs ext | ❌ |
-| CLI included | **✅** | ❌ | ❌ |
-| Password hashing | **✅** | ❌ | ❌ |
-| AES encryption | **✅** | ❌ | ❌ |
-| Bulk insert speed | **Fastest** | Medium | Medium |
-| Session pattern | **✅** | ✅ | ❌ |
+| MySQL + PostgreSQL + YugabyteDB | **✅** | ✅ | ✅ |
+| Async built-in | **✅** | needs an extra package | ❌ |
+| Command-line tool included | **✅** | ❌ | ❌ |
+| Password hashing built in | **✅** | ❌ | ❌ |
+| Field-level encryption built in | **✅** | ❌ | ❌ |
+
+mydborm trades some of SQLAlchemy's flexibility (it doesn't support
+every database SQLAlchemy does, and it's less configurable under the
+hood) for a much smaller footprint and things you'd otherwise have to
+bolt on yourself — async support, a CLI, password hashing, and
+distributed-SQL (YugabyteDB) support, all included from the start.
+
+Pick mydborm if you want to be productive in MySQL, PostgreSQL, or
+YugabyteDB quickly without learning a large framework. Pick SQLAlchemy
+if you need to support many different databases or want fine-grained
+control over query generation.

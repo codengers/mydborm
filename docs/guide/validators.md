@@ -1,7 +1,27 @@
 # Validators
 
-mydborm provides 6 built-in validators that attach directly to field definitions.
-Validation runs automatically on every `create()` and `update()` call.
+When you save a row, you want to catch bad data *before* it ever reaches
+the database — a malformed email, a rating of 11 out of 5, a status that
+isn't one of the ones your app understands. That's what a **validator**
+is for: a small rule attached to a field that checks the value and
+raises a Python error if it doesn't pass.
+
+This is different from a database constraint. A validator runs **in
+Python, on your machine, before any SQL is sent** — not as a rule
+stored inside the database itself (the kind of rule database people
+call a "CHECK constraint"). That means:
+
+- The error happens immediately, with a clear Python message, instead
+  of a cryptic database error after a network round trip.
+- The check works the same way no matter which database you're using
+  (MySQL, PostgreSQL, or YugabyteDB).
+- You can write your own validators in plain Python — no SQL required.
+
+mydborm runs validators automatically every time you call `create()` or
+`update()`. You don't have to call anything yourself — just attach a
+validator to a field when you define your model, and mydborm checks it
+on every save from then on. There are 6 built-in validators, and you
+can write custom ones too.
 
 ---
 
@@ -15,15 +35,21 @@ from mydborm import (
     RangeValidator,
     MinLengthValidator,
     ChoiceValidator,
-    ValidationRule,   # base class for custom validators
+    ValidationRule,   # base class for writing your own custom validators
 )
 ```
+
+Each one is attached to a field through that field's `validators=[...]`
+argument — you can attach one or several to the same field, as you'll
+see further down.
 
 ---
 
 ## EmailValidator
 
-Validates email address format using RFC-compliant regex.
+Checks that a string looks like a valid email address (using a regular
+expression — a pattern-matching rule — under the hood, so you don't have
+to write the pattern yourself).
 
 ```python
 from mydborm import BaseModel, IntField, StrField, EmailValidator
@@ -60,15 +86,26 @@ except ValueError as e:
     # Field 'email' must be a valid email address. Got: '@nodomain.com'
 ```
 
-**Pattern used:** `^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`
+Each `try`/`except` block above shows the same pattern you'll use
+everywhere in this guide: call `create()` or `update()`, and if a
+validator fails, mydborm raises a `ValueError` with a message you can
+catch and show to the user (or log).
 
-**None passes:** `email = None` is valid when `nullable=True`.
+**Pattern used:** `^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`
+— that's the regular expression mydborm checks the value against. You
+don't need to understand regex syntax to use the validator; it's only
+shown here for anyone curious or debugging an edge case.
+
+**None passes:** if the field is `nullable=True`, setting `email = None`
+skips the validator entirely — there's nothing to check.
 
 ---
 
 ## UrlValidator
 
-Validates URL format — requires `http://` or `https://` prefix.
+Checks that a string is a URL starting with `http://` or `https://`.
+Anything else — a bare domain, a different protocol, random text — is
+rejected.
 
 ```python
 from mydborm import UrlValidator
@@ -101,11 +138,20 @@ except ValueError as e:
     print(e)   # Field 'url' must be a valid URL. Got: 'not a url at all'
 ```
 
+Note that `example.com` without a protocol fails — mydborm doesn't try
+to guess what you meant, it just checks for `http://` or `https://` at
+the start.
+
 ---
 
 ## RegexValidator
 
-Validates a value matches a custom regular expression pattern.
+The three validators above are really just convenient shortcuts for
+common patterns. `RegexValidator` is the general-purpose version: give
+it any regular expression (a text pattern describing what a valid value
+looks like) and it checks values against that pattern. Reach for this
+when you need a format the built-in validators don't cover — product
+SKUs, hex color codes, phone numbers, anything with a predictable shape.
 
 ```python
 from mydborm import RegexValidator
@@ -148,11 +194,17 @@ except ValueError as e:
     # Field 'hex_color' does not match pattern '^#[0-9A-Fa-f]{6}$'. Got: 'red'
 ```
 
+Passing your own `message=` (like the `sku` field does above) replaces
+mydborm's default error text with something more useful to whoever
+reads it. If you skip `message`, you get a generic message that
+includes the raw pattern — fine for debugging, less fine for showing to
+an end user.
+
 **Constructor:**
 
 ```python
 RegexValidator(
-    pattern: str,          # regex pattern string
+    pattern: str,          # the regex pattern to match against
     message: str = None,   # custom error message (optional)
 )
 ```
@@ -161,7 +213,10 @@ RegexValidator(
 
 ## RangeValidator
 
-Validates a numeric value is within a minimum and maximum range.
+Checks that a number falls between a minimum and a maximum (both
+inclusive — meaning the boundary values themselves are allowed). Use it
+for ratings, percentages, prices, ages, or any number that only makes
+sense within certain bounds.
 
 ```python
 from mydborm import RangeValidator, IntField, FloatField
@@ -204,22 +259,27 @@ except ValueError as e:
     # Field 'age' must be >= 13. Got: 10
 ```
 
+Notice `age` only sets `min_val` and `score` only sets `max_val` — you
+don't have to specify both ends. Leave either one out (it defaults to
+`None`) if you only care about one side of the range.
+
 **Constructor:**
 
 ```python
 RangeValidator(
-    min_val = None,   # minimum value (inclusive)
-    max_val = None,   # maximum value (inclusive)
+    min_val = None,   # minimum allowed value (inclusive)
+    max_val = None,   # maximum allowed value (inclusive)
 )
 ```
-
-Both `min_val` and `max_val` are optional — use one or both.
 
 ---
 
 ## MinLengthValidator
 
-Validates a string meets a minimum character length.
+Checks that a string is at least a certain number of characters long.
+Handy for usernames, passwords, or any text field where "too short" is
+a meaningful error (rather than letting an empty or one-character value
+silently slip through).
 
 ```python
 from mydborm import MinLengthValidator
@@ -254,6 +314,12 @@ except ValueError as e:
     # Field 'password' must be at least 8 characters. Got: 5
 ```
 
+!!! note "Don't store real passwords as plain `StrField`s"
+    The example above uses a plain `StrField` for `password` just to
+    demonstrate `MinLengthValidator`. In a real app, use `PasswordField`
+    instead — it automatically hashes the password so you never store
+    it as readable text. See [Security](security.md) for details.
+
 **Constructor:**
 
 ```python
@@ -264,7 +330,9 @@ MinLengthValidator(min_length: int)
 
 ## ChoiceValidator
 
-Validates a value is one of a fixed set of allowed choices.
+Checks that a value is one of a fixed list of allowed options — useful
+for things like order status, priority level, or any field where only
+a specific, known set of values makes sense.
 
 ```python
 from mydborm import ChoiceValidator
@@ -303,17 +371,33 @@ except ValueError as e:
     # Field 'priority' must be one of ['low', 'medium', 'high', 'critical']. Got: 'CRITICAL'
 ```
 
-!!! tip "Use ChoiceValidator vs EnumField"
-    `ChoiceValidator` validates at the Python level — the DB stores a plain VARCHAR.
-    `EnumField` validates AND creates a MySQL ENUM column — stricter at the DB level.
-    Use `ChoiceValidator` when you might add/remove choices without a migration.
-    Use `EnumField` when you want DB-level enforcement too.
+The comparison is exact and case-sensitive — `"CRITICAL"` does not match
+`"critical"` in the list. If you want to accept either case, convert the
+value yourself before saving (e.g. `priority.lower()`).
+
+!!! tip "ChoiceValidator vs EnumField — which one should I use?"
+    Both restrict a field to a fixed set of values, but they enforce it
+    in different places:
+
+    - `ChoiceValidator` checks the value in **Python**, before the SQL
+      is sent. The database column itself is a plain `VARCHAR` with no
+      restriction of its own.
+    - `EnumField` is a different kind of field entirely — it checks the
+      value in Python *and* creates a MySQL `ENUM` column, so the
+      database itself also refuses invalid values, even if some other
+      tool writes to the table directly.
+
+    Use `ChoiceValidator` if your list of allowed values might change
+    without you wanting to run a database migration. Use `EnumField` if
+    you want the database to enforce the rule too.
 
 ---
 
 ## Combining multiple validators
 
-Attach multiple validators to one field — they run in order, stopping at the first failure:
+A field can have more than one validator. They run in the order you
+list them, and stop at the very first one that fails — so put your
+fastest or most "obvious" check first if it matters to you.
 
 ```python
 from mydborm import MinLengthValidator, RegexValidator, ChoiceValidator
@@ -348,11 +432,19 @@ except ValueError as e:
     print(e)   # Slug may only contain lowercase letters, numbers, and hyphens
 ```
 
+In the second example, `"My Post Title"` is 13 characters long, so it
+sails past `MinLengthValidator(3)` — but it has spaces and uppercase
+letters, so it fails the regex check that runs next.
+
 ---
 
 ## Cross-field validation
 
-Use `__validators__` on the model class for rules that span multiple fields:
+Everything above checks **one field** in isolation. Sometimes a rule
+depends on more than one field at once — for example, "the discount
+percentage can't exceed 100, but only if a minimum order amount is also
+set." For that, use `__validators__` on the model class itself instead
+of on an individual field:
 
 ```python
 class Discount(BaseModel):
@@ -387,11 +479,37 @@ except ValueError as e:
     print(e)   # min_order must be a positive number
 ```
 
+Each entry in `__validators__` is a function that receives the full
+dictionary of values being saved (`data`) and can raise a `ValueError`
+if something about the *combination* of fields is wrong. The
+`lambda data: (_ for _ in ()).throw(...)` lines look unusual — that's
+just a one-line trick for raising an exception inside a `lambda`, since
+Python's `lambda` syntax doesn't allow a plain `raise` statement. If
+you find that pattern hard to read, you can write the same check as a
+normal function instead:
+
+```python
+def check_min_order(data):
+    if data.get("min_order") is not None and data["min_order"] <= 0:
+        raise ValueError("min_order must be a positive number")
+
+class Discount(BaseModel):
+    ...
+    __validators__ = [check_min_order]
+```
+
+Both versions behave identically — use whichever reads more clearly to
+you.
+
 ---
 
 ## Custom validators
 
-Create your own validator by subclassing `ValidationRule`:
+If none of the built-in validators fit what you need, write your own by
+subclassing `ValidationRule` and implementing a `validate()` method. It
+receives the value being saved and the name of the field, and should
+raise a `ValueError` if the value is invalid (returning normally — i.e.
+not raising anything — means the value passed).
 
 ```python
 from mydborm.fields import ValidationRule
@@ -447,16 +565,26 @@ except ValueError as e:
     print(e)
 ```
 
+The `CreditCardValidator` example above shows that a custom validator
+isn't limited to a regex check — it's plain Python, so it can run any
+logic you want (here, the Luhn algorithm, a simple checksum formula
+used to catch typos in card numbers) before deciding whether to raise
+an error.
+
 ---
 
 ## Validator reference
 
 | Validator | Constructor | What it checks |
 |---|---|---|
-| `EmailValidator()` | no args | RFC email format |
-| `UrlValidator()` | no args | http/https URL |
-| `RegexValidator(pattern, message=None)` | pattern str | custom regex |
-| `RangeValidator(min_val=None, max_val=None)` | numeric bounds | min ≤ value ≤ max |
-| `MinLengthValidator(min_length)` | int | len(value) ≥ min |
-| `ChoiceValidator(choices)` | list | value in choices |
-| `ValidationRule` (subclass) | custom | anything |
+| `EmailValidator()` | no args | Looks like a valid email address |
+| `UrlValidator()` | no args | Starts with `http://` or `https://` |
+| `RegexValidator(pattern, message=None)` | pattern str | Matches a custom regex pattern |
+| `RangeValidator(min_val=None, max_val=None)` | numeric bounds | `min_val <= value <= max_val` |
+| `MinLengthValidator(min_length)` | int | `len(value) >= min_length` |
+| `ChoiceValidator(choices)` | list | Value is in the `choices` list |
+| `ValidationRule` (subclass) | custom | Anything you write yourself |
+
+All validators skip their check when the value is `None` — so a
+`nullable=True` field with no value provided always passes, regardless
+of which validators are attached.

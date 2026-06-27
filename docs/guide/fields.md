@@ -1,44 +1,128 @@
 # Fields
 
-Fields define the columns in your database table. Each field maps a Python type to a SQL column, with full dialect support for MySQL and YugabyteDB.
+When you define a model in mydborm, every class attribute you write is a
+**field** — a small object that describes one column in the database
+table. A field does three jobs at once:
+
+1. It tells mydborm what SQL column to create (`INT`, `VARCHAR(50)`,
+   `TEXT`, and so on) when you call `create_table()`.
+2. It checks values before they're saved — so a typo like passing the
+   string `"abc"` to a number field fails immediately in Python,
+   instead of confusing the database later.
+3. It can apply extra rules (uniqueness, defaults, required-ness) without
+   you writing any SQL yourself.
+
+```python
+from mydborm import BaseModel, IntField, StrField
+
+class Product(BaseModel):
+    __tablename__ = "products"
+    id   = IntField(primary_key=True)
+    name = StrField(max_length=100, nullable=False)
+```
+
+Here, `id` and `name` are fields. `IntField` and `StrField` are two of
+the many field *types* mydborm provides — each one matches a kind of
+data you'd store (whole numbers, short text, true/false, dates, and so
+on).
+
+## Picking the right field type
+
+The simplest rule of thumb: pick the field type that matches the
+*shape* of your data, not the database column name you'd normally type
+by hand.
+
+- Storing a whole number (an age, a quantity, an ID)? Use `IntField`
+  (or one of its bigger/smaller variants — see [Integer
+  variants](#integer-variants)).
+- Storing short text with a known maximum length (a username, an
+  email)? Use `StrField`.
+- Storing a number with decimal places? Use `FloatField` for things
+  like scores or measurements where tiny rounding differences don't
+  matter, or `DecimalField` for money, where they do.
+- Storing true/false? Use `BoolField`.
+- Storing a date, a time, or both? Use `DateField`, `TimeField`, or
+  `DateTimeField`.
+
+Every field type below follows the same pattern: you import it, use it
+as a class attribute on your model, and pass it some options that
+control how strict or flexible that column is.
+
+---
+
+## Options every field accepts
+
+Regardless of which field type you pick, you can pass these keyword
+arguments to any of them:
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `primary_key` | bool | `False` | Marks this column as the table's unique identifier. mydborm auto-generates the value for you (an auto-incrementing number), so you never set it yourself when creating a row. |
+| `nullable` | bool | `True` | Whether this column is allowed to be empty (`None` in Python, `NULL` in SQL). Set `nullable=False` to make a field required. |
+| `default` | any | `None` | The value to use automatically if you don't supply one when creating a row. |
+| `unique` | bool | `False` | If `True`, the database rejects any row that would duplicate an existing value in this column (handy for things like usernames or emails). |
+| `index` | bool | `False` | If `True`, mydborm creates a database index on this column, which speeds up searches and filters on it at the cost of slightly slower writes. |
+| `validators` | list | `[]` | A list of extra validation rules to run before saving — see [Custom validators](#custom-validators) below. |
+
+A quick note on terminology: throughout this page you'll see "MySQL"
+and "YugabyteDB" column types side by side. mydborm supports both
+databases (plus PostgreSQL, which uses the same types as YugabyteDB),
+and it automatically translates each field into the right SQL syntax
+for whichever one you've connected to with `db.configure()`. You don't
+need to remember the SQL names yourself — they're shown here mostly so
+you know what's actually being created under the hood.
 
 ---
 
 ## All field types at a glance
 
-| Field | Python type | MySQL | YugabyteDB |
+| Field | Python type | MySQL | YugabyteDB / PostgreSQL |
 |---|---|---|---|
 | `IntField` | `int` | `INT` | `INTEGER` |
 | `StrField(max_length=n)` | `str` | `VARCHAR(n)` | `VARCHAR(n)` |
 | `TextField` | `str` | `TEXT` | `TEXT` |
 | `BoolField` | `bool` | `TINYINT(1)` | `BOOLEAN` |
 | `FloatField` | `float` | `FLOAT` | `FLOAT` |
-| `DecimalField(p,s)` | `Decimal` | `DECIMAL(p,s)` | `DECIMAL(p,s)` |
+| `DecimalField(precision, scale)` | `Decimal` | `DECIMAL(p,s)` | `DECIMAL(p,s)` |
 | `DateField` | `date` | `DATE` | `DATE` |
-| `DateTimeField` | `datetime` | `DATETIME` | `TIMESTAMP` |
-| `JSONField` | `dict/list` | `JSON` | `JSONB` |
-| `ForeignKeyField(to)` | `int` | `INT` | `INTEGER` |
+| `DateTimeField` | `datetime` | `DATETIME` | `DATETIME` |
+| `JSONField` | `dict`/`list` | `JSON` | `JSONB` |
+| `ForeignKeyField(to=...)` | `int` | `INT` | `INTEGER` |
+| `TinyIntField` | `int` | `TINYINT` | `SMALLINT` |
+| `SmallIntField` | `int` | `SMALLINT` | `SMALLINT` |
+| `BigIntField` | `int` | `BIGINT` | `BIGINT` |
+| `UnsignedBigIntField` | `int` | `BIGINT UNSIGNED` | `NUMERIC(20)` |
+| `DoubleField` | `float` | `DOUBLE` | `DOUBLE PRECISION` |
+| `BitField(length=n)` | `int`/`str` | `BIT(n)` | `BIT(n)` |
+| `CharField(length=n)` | `str` | `CHAR(n)` | `CHAR(n)` |
+| `TinyTextField` | `str` | `TINYTEXT` | `TEXT` |
+| `MediumTextField` | `str` | `MEDIUMTEXT` | `TEXT` |
+| `LongTextField` | `str` | `LONGTEXT` | `TEXT` |
+| `BinaryField(length=n)` | `bytes` | `BINARY(n)` | `BYTEA` |
+| `VarBinaryField(max_length=n)` | `bytes` | `VARBINARY(n)` | `BYTEA` |
+| `BlobField` | `bytes` | `BLOB`/`MEDIUMBLOB`/`LONGBLOB` | `BYTEA` |
+| `TimeField` | `time` | `TIME` | `TIME` |
+| `TimestampField` | `datetime` | `TIMESTAMP` | `TIMESTAMPTZ` |
+| `EnumField(choices=[...])` | `str` | `ENUM(...)` | `VARCHAR(n)` |
+| `SetField(choices=[...])` | `str`/`list` | `SET(...)` | `TEXT[]` |
+| `PasswordField` | `str` | `VARCHAR(255)` | `VARCHAR(255)` |
+| `EncryptedField` | `str` | `TEXT` | `TEXT` |
 
----
-
-## Field options
-
-Every field accepts these common options:
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `primary_key` | bool | False | Auto-increment PK |
-| `nullable` | bool | True | Allow NULL |
-| `default` | any | None | Default value |
-| `unique` | bool | False | UNIQUE constraint |
-| `index` | bool | False | Create index |
-| `validators` | list | [] | Custom validators |
+The most common fields you'll reach for in everyday models — `IntField`,
+`StrField`, `TextField`, `BoolField`, `FloatField`, `DecimalField`,
+`DateField`, `DateTimeField`, `JSONField`, and `ForeignKeyField` — are
+covered in detail first. The rest are variants for more specific
+situations (bigger numbers, fixed-size codes, binary data, and so on)
+and are grouped together near the end of this page.
 
 ---
 
 ## IntField
 
-Maps to `INT` (MySQL) / `INTEGER` (YugabyteDB). Use for IDs, counts, ages, quantities.
+`IntField` stores a whole number and becomes `INT` in MySQL or
+`INTEGER` in YugabyteDB/PostgreSQL. Reach for it first whenever you
+need IDs, counts, ages, or quantities — it's the field type you'll use
+most often.
 
 ```python
 from mydborm import BaseModel, IntField
@@ -50,6 +134,10 @@ class Product(BaseModel):
     views    = IntField(default=0)
     rating   = IntField(nullable=True)
 ```
+
+When `primary_key=True`, mydborm makes the column auto-increment — the
+database assigns the next number for you, so you never set `id`
+yourself when creating a row.
 
 **SQL generated:**
 
@@ -67,7 +155,9 @@ views    INTEGER DEFAULT 0,
 rating   INTEGER
 ```
 
-**Validation examples:**
+If you pass a value that doesn't make sense for an integer column,
+`IntField` raises an error before any SQL is sent — that's the
+"validation" mentioned earlier in action:
 
 ```python
 from mydborm import IntField
@@ -76,7 +166,6 @@ f = IntField(nullable=False)
 f.name = "quantity"
 
 f.validate(42)        # OK  → 42
-f.validate("10")      # OK  → coerced to 10
 f.validate(None)      # ERROR → ValueError: Field 'quantity' cannot be None
 f.validate("abc")     # ERROR → TypeError: wrong type
 ```
@@ -104,7 +193,11 @@ item_id = InventoryItem.create(
 
 ## StrField
 
-Maps to `VARCHAR(n)`. Use for names, emails, codes — any text with a known max length.
+`StrField` stores text up to a fixed maximum length and becomes
+`VARCHAR(n)` in SQL — `n` being whatever number you pass as
+`max_length`. Use it for anything that's text but has a sensible upper
+bound: names, emails, short codes, usernames. If `max_length` isn't
+given, it defaults to `255`.
 
 ```python
 from mydborm import StrField
@@ -127,16 +220,18 @@ nickname VARCHAR(50)  DEFAULT 'anonymous',
 locale   VARCHAR(5)   DEFAULT 'en'
 ```
 
-**Validation examples:**
+`max_length` isn't just decoration — mydborm enforces it in Python too,
+so you find out about an over-long value right away instead of waiting
+for the database to complain:
 
 ```python
 f = StrField(max_length=10, nullable=False)
 f.name = "username"
 
-f.validate("alice")         # OK  → "alice"
+f.validate("alice")        # OK  → "alice"
 f.validate("a" * 11)       # ERROR → exceeds max_length=10
-f.validate(None)            # ERROR → cannot be None
-f.validate(123)             # OK  → coerced to "123"
+f.validate(None)           # ERROR → cannot be None
+f.validate(123)            # ERROR → TypeError: expects str, got int
 ```
 
 **Real-world example — product catalog:**
@@ -160,7 +255,10 @@ laptops = Product.query().where("category", "Electronics").where("brand", "Apple
 
 ## TextField
 
-Maps to `TEXT`. No size limit — use for long content like descriptions, blog posts, notes.
+`TextField` stores text with no length limit, becoming a `TEXT` column
+in both MySQL and YugabyteDB. Use it for anything that could run long
+— article bodies, descriptions, freeform notes — where picking a
+`max_length` for `StrField` wouldn't make sense.
 
 ```python
 from mydborm import TextField
@@ -181,13 +279,20 @@ aid = Article.create(
 ```
 
 !!! note
-    `TextField` has no `max_length` parameter. For searchable short strings use `StrField`. For long content use `TextField`.
+    `TextField` doesn't take a `max_length` argument — that's the
+    whole point of it. If you need a short, searchable string with a
+    known limit, use `StrField` instead; if the content could be
+    arbitrarily long, use `TextField`.
 
 ---
 
 ## BoolField
 
-Maps to `TINYINT(1)` (MySQL) / `BOOLEAN` (YugabyteDB). Always use `True`/`False` — not `1`/`0`.
+`BoolField` stores a true/false value. It becomes `TINYINT(1)` in
+MySQL (where the database itself only understands `1`/`0`) or native
+`BOOLEAN` in YugabyteDB/PostgreSQL — but in your Python code you should
+always write `True`/`False`, never `1`/`0`. mydborm handles translating
+between the two automatically.
 
 ```python
 from mydborm import BoolField
@@ -215,7 +320,9 @@ verified   BOOLEAN DEFAULT FALSE,
 is_admin   BOOLEAN NOT NULL DEFAULT FALSE
 ```
 
-**Validation examples:**
+Passing anything other than an actual Python `bool` is rejected — even
+numbers, even though MySQL itself stores booleans as numbers under the
+hood:
 
 ```python
 f = BoolField(nullable=False)
@@ -229,9 +336,11 @@ f.validate(1)       # ERROR → TypeError: expects bool, got int
 ```
 
 !!! warning "Dialect difference"
-    MySQL stores booleans as `TINYINT(1)` and returns `1`/`0`.
-    YugabyteDB returns native `True`/`False`.
-    mydborm normalises this — always use `True`/`False` in your code.
+    MySQL stores booleans as `TINYINT(1)` and would normally hand you
+    back `1`/`0` if you queried it directly. YugabyteDB returns native
+    `True`/`False`. mydborm smooths this difference over for you — as
+    long as you stick to `True`/`False` in your own code, you don't
+    need to worry about which database you're using.
 
 **Real-world example — feature flags:**
 
@@ -255,7 +364,11 @@ enabled = FeatureFlag.filter(enabled=True)
 
 ## FloatField
 
-Maps to `FLOAT`. Good for prices, scores, ratings. For money use `DecimalField`.
+`FloatField` stores a number with a decimal point and becomes a
+`FLOAT` column. It's a good fit for things like measurements, scores,
+or ratings, where tiny rounding differences don't matter. For money or
+anything where exact precision matters, use [`DecimalField`](#decimalfield)
+instead — see why in the next section.
 
 ```python
 from mydborm import FloatField
@@ -268,7 +381,7 @@ class Product(BaseModel):
     rating = FloatField(nullable=True, default=0.0)  # 0.0–5.0
 ```
 
-**Validation examples:**
+Whole numbers passed in are automatically converted to floats for you:
 
 ```python
 f = FloatField(nullable=False)
@@ -301,7 +414,11 @@ rows = db.fetchall(
 
 ## DecimalField
 
-Maps to `DECIMAL(precision, scale)`. Use for money and anything where floating point errors matter.
+`DecimalField` stores a fixed-precision number and becomes
+`DECIMAL(precision, scale)` in SQL. `precision` is the total number of
+digits allowed, and `scale` is how many of those digits come after the
+decimal point. If you don't pass either, they default to `precision=10,
+scale=2` — good enough for most prices.
 
 ```python
 from mydborm import DecimalField
@@ -317,8 +434,12 @@ class Order(BaseModel):
 ```
 
 !!! tip "Always use DecimalField for money"
-    `FloatField` can have rounding errors: `0.1 + 0.2 = 0.30000000000000004`.
-    `DecimalField` is exact: `0.1 + 0.2 = 0.3`.
+    Computers store regular floating-point numbers (`FloatField`) in a
+    way that can introduce tiny rounding errors — for example,
+    `0.1 + 0.2` comes out to `0.30000000000000004`, not `0.3`. That's
+    harmless for things like ratings, but unacceptable for money.
+    `DecimalField` uses Python's `Decimal` type instead, which is
+    exact: `0.1 + 0.2 = 0.3`, every time.
 
 **Real-world example:**
 
@@ -340,7 +461,10 @@ print(order["total"])   # Decimal('97.99') — exact!
 
 ## DateField
 
-Maps to `DATE`. Stores year, month, day — no time component.
+`DateField` stores a calendar date — year, month, day — with no time
+of day attached, and becomes a `DATE` column. Use it for things like
+birthdays or hire dates, where the time of day is irrelevant or
+unknown.
 
 ```python
 from mydborm import DateField
@@ -354,7 +478,8 @@ class Employee(BaseModel):
     birthday   = DateField(nullable=True)
 ```
 
-**Real-world example:**
+You can pass a Python `date` object (recommended) or a date string —
+both are accepted:
 
 ```python
 from datetime import date
@@ -366,7 +491,7 @@ eid = Employee.create(
 )
 
 emp = Employee.get(id=eid)
-print(emp["hired_on"])   # 2024-01-15
+print(emp["hired_on"])        # 2024-01-15
 print(type(emp["hired_on"]))  # <class 'datetime.date'>
 
 # Query employees hired this year
@@ -388,7 +513,10 @@ rows = db.fetchall(
 
 ## DateTimeField
 
-Maps to `DATETIME` (MySQL) / `TIMESTAMP` (YugabyteDB). Full date + time.
+`DateTimeField` stores both a date *and* a time of day, becoming
+`DATETIME` in MySQL or `TIMESTAMP` in YugabyteDB/PostgreSQL. Use it
+whenever you need to know not just *that* something happened, but
+*when* — log entries, "created at" timestamps, scheduled events.
 
 ```python
 from mydborm import DateTimeField
@@ -432,11 +560,19 @@ print(j)
 # {"id": 1, "created_at": "2024-06-19T10:30:00", ...}
 ```
 
+If you need a timestamp that's aware of time zones (rather than just a
+plain date and time), see [`TimestampField`](#timefield-and-timestampfield)
+further down.
+
 ---
 
 ## JSONField
 
-Maps to `JSON` (MySQL) / `JSONB` (YugabyteDB). Store structured data — settings, metadata, tags.
+`JSONField` stores structured data — nested dictionaries, lists,
+whatever shape you need — directly in a column, becoming `JSON` in
+MySQL or `JSONB` (a faster, indexable binary form of JSON) in
+YugabyteDB. It's useful for things you don't want to model as separate
+columns: per-user settings, flexible metadata, tags.
 
 ```python
 from mydborm import JSONField
@@ -451,7 +587,8 @@ class UserProfile(BaseModel):
     metadata    = JSONField(nullable=True)
 ```
 
-**Real-world examples:**
+You can store dictionaries or lists, and read/write nested values just
+like any other Python data structure:
 
 ```python
 # Store nested config
@@ -477,9 +614,9 @@ uid = UserProfile.create(
 profile = UserProfile.get(id=uid)
 
 # Access nested values
-theme = profile["settings"]["theme"]           # "dark"
+theme = profile["settings"]["theme"]                   # "dark"
 email = profile["settings"]["notifications"]["email"]  # True
-first_tag = profile["tags"][0]                 # "premium"
+first_tag = profile["tags"][0]                          # "premium"
 
 # Update a nested value
 settings = profile["settings"]
@@ -488,14 +625,19 @@ UserProfile.update({"settings": settings}, id=uid)
 ```
 
 !!! tip "YugabyteDB JSONB advantage"
-    YugabyteDB stores JSON as `JSONB` (binary) which is faster to query and
-    supports GIN indexes for searching inside JSON fields.
+    YugabyteDB stores JSON as `JSONB` (a binary representation rather
+    than plain text), which is faster to query and lets you build
+    indexes that search *inside* the JSON itself.
 
 ---
 
 ## ForeignKeyField
 
-Maps to `INT` — a reference to another table's primary key.
+`ForeignKeyField` is how you link one table to another. Behind the
+scenes it's just an `INT` column, but it's meant to hold the primary
+key value of a row in a different table — the standard way relational
+databases represent "this thing belongs to that thing." Pass the
+related model's class name as a string to `to=`.
 
 ```python
 from mydborm import ForeignKeyField
@@ -521,6 +663,12 @@ class Book(BaseModel):
 author_id   INT NOT NULL,
 category_id INT
 ```
+
+If you find yourself writing a lot of `ForeignKeyField` columns and
+then joining across them by hand, take a look at
+[Relationships](relationships.md) — it builds `has_many`/`belongs_to`
+helpers on top of exactly this field type, so you don't have to write
+the joins yourself.
 
 **Real-world example — full e-commerce schema:**
 
@@ -572,24 +720,255 @@ results = (Product.query()
 
 ---
 
-## Custom validators
+## Extended field types
 
-Attach validation rules to any field using the `validators` parameter.
+The fields above cover most day-to-day needs, but mydborm also ships a
+larger set of more specialized field types, for when you need more
+control over exactly how something is stored — a smaller integer to
+save space, a fixed-width code, raw binary data, and so on. You don't
+need to know all of these up front; skim the headings and come back
+when you hit a specific need.
 
-### Built-in validators
+### Integer variants
+
+`IntField` is a good default, but if you know your numbers will always
+be small (saving a little storage) or might be very large (avoiding
+overflow errors), these variants give you more control:
+
+- **`TinyIntField`** — a 1-byte integer. MySQL stores it as a true
+  `TINYINT` (-128 to 127); YugabyteDB maps it up to `SMALLINT` since it
+  has no native tiny integer type. Good for small bounded values like
+  a 1-5 star rating or a small priority level.
+- **`SmallIntField`** — a 2-byte integer (-32768 to 32767) in both
+  MySQL and YugabyteDB. Useful for things like a year or a sort order
+  where you know the value will always be modest.
+- **`BigIntField`** — an 8-byte integer, for when a regular `IntField`
+  isn't big enough — file sizes in bytes, view counters, or IDs in a
+  system large enough to exceed a few billion rows.
+- **`UnsignedBigIntField`** — an 8-byte integer that can never be
+  negative, doubling the usable positive range compared to a signed
+  `BigIntField`. MySQL stores it as `BIGINT UNSIGNED`; YugabyteDB maps
+  it to `NUMERIC(20)` to avoid overflow, since it has no unsigned
+  integer type. Useful for checksums or token IDs that are always
+  non-negative.
 
 ```python
-from mydborm import (
-    EmailValidator,     # valid email format
-    UrlValidator,       # valid http/https URL
-    RegexValidator,     # custom regex pattern
-    RangeValidator,     # numeric min/max
-    MinLengthValidator, # minimum string length
-    ChoiceValidator,    # allowed values list
-)
+from mydborm import TinyIntField, SmallIntField, BigIntField, UnsignedBigIntField
+
+class FileUpload(BaseModel):
+    __tablename__ = "file_uploads"
+    id         = IntField(primary_key=True)
+    priority   = TinyIntField(default=0)          # small bounded value
+    sort_order = SmallIntField(default=0)
+    file_size  = BigIntField(nullable=True)        # bytes — can get large
+    checksum   = UnsignedBigIntField(nullable=True) # always non-negative
 ```
 
-### EmailValidator
+### Floating-point variants
+
+- **`DoubleField`** — a higher-precision floating point number than
+  `FloatField` (`DOUBLE` in MySQL, `DOUBLE PRECISION` in YugabyteDB).
+  Use it when you need more decimal digits of accuracy than
+  `FloatField` gives you — for example latitude/longitude coordinates,
+  where small precision losses can shift a location noticeably.
+
+```python
+from mydborm import DoubleField
+
+class Location(BaseModel):
+    __tablename__ = "locations"
+    id        = IntField(primary_key=True)
+    latitude  = DoubleField(nullable=True)
+    longitude = DoubleField(nullable=True)
+```
+
+### Fixed-width text and bits
+
+- **`CharField(length=n)`** — a fixed-width, space-padded string of
+  exactly `n` characters (`CHAR(n)`). Use this instead of `StrField`
+  when every value really is the same length, like a 2-letter country
+  code or a 3-letter currency code — it's slightly more efficient than
+  a variable-length column for that case.
+- **`BitField(length=n)`** — stores a fixed number of bits (1 to 64),
+  for compact flag/permission storage.
+
+```python
+from mydborm import CharField, BitField
+
+class Address(BaseModel):
+    __tablename__ = "addresses"
+    id           = IntField(primary_key=True)
+    country_code = CharField(length=2, nullable=False)   # "US", "GB"
+    currency     = CharField(length=3, nullable=True)    # "USD", "EUR"
+    flags        = BitField(length=8, nullable=True)     # 8-bit flag set
+```
+
+### Text variants
+
+If `TextField` doesn't give you enough granularity, MySQL distinguishes
+between a few sizes of unlimited text. YugabyteDB doesn't have separate
+types for these, so mydborm maps all of them to a plain `TEXT` column
+there:
+
+- **`TinyTextField`** — up to 255 bytes. Good for short captions or
+  notes where you still want "no fixed length" semantics.
+- **`MediumTextField`** — up to 16 MB. Good for long-form content like
+  full articles.
+- **`LongTextField`** — up to 4 GB. Good for very large content like
+  whole documents or large log dumps.
+
+```python
+from mydborm import TinyTextField, MediumTextField, LongTextField
+
+class Article(BaseModel):
+    __tablename__ = "articles"
+    id           = IntField(primary_key=True)
+    tagline      = TinyTextField(nullable=True)
+    article_body = MediumTextField(nullable=False)
+    raw_html     = LongTextField(nullable=True)
+```
+
+### Binary data
+
+These fields store raw bytes rather than text — use them for hashes,
+encoded keys, or small files. MySQL has separate fixed- and
+variable-length binary types; YugabyteDB stores all of them as
+`BYTEA`.
+
+- **`BinaryField(length=n)`** — fixed-length binary data, e.g. exactly
+  32 bytes for a SHA-256 hash.
+- **`VarBinaryField(max_length=n)`** — variable-length binary data up
+  to a maximum size, e.g. a digital signature.
+- **`BlobField(blob_type=...)`** — for genuinely large binary content
+  like images, audio, or file attachments. `blob_type` can be
+  `"TINYBLOB"`, `"BLOB"` (the default), `"MEDIUMBLOB"`, or
+  `"LONGBLOB"`, matching MySQL's size tiers; YugabyteDB stores all of
+  them as `BYTEA` regardless of which tier you pick.
+
+```python
+from mydborm import BinaryField, VarBinaryField, BlobField
+
+class Document(BaseModel):
+    __tablename__ = "documents"
+    id         = IntField(primary_key=True)
+    hash_value = BinaryField(length=32, nullable=True)     # SHA-256
+    signature  = VarBinaryField(max_length=256, nullable=True)
+    attachment = BlobField(blob_type="LONGBLOB", nullable=True)
+```
+
+### TimeField and TimestampField
+
+- **`TimeField`** — stores a time of day with no date attached (e.g.
+  `"09:00:00"`), for things like opening hours.
+- **`TimestampField`** — like `DateTimeField`, but timezone-aware:
+  MySQL stores it as `TIMESTAMP`, and YugabyteDB stores it as
+  `TIMESTAMPTZ`. Use `TimestampField` for columns like `created_at` or
+  `expires_at` where you need to know *which* timezone a moment
+  happened in; use plain `DateTimeField` when timezone doesn't matter
+  for your use case.
+
+```python
+from mydborm import TimeField, TimestampField
+
+class Store(BaseModel):
+    __tablename__ = "stores"
+    id         = IntField(primary_key=True)
+    opens_at   = TimeField(nullable=True)
+    closes_at  = TimeField(nullable=True)
+    created_at = TimestampField(nullable=True)
+    expires_at = TimestampField(nullable=True)
+```
+
+### EnumField and SetField
+
+These two fields restrict a column to a fixed list of allowed values —
+the difference is whether a row can hold *one* value from the list or
+*several at once*:
+
+- **`EnumField(choices=[...])`** — exactly one value out of a fixed
+  list, e.g. an order's status. MySQL uses its native `ENUM(...)`
+  type; YugabyteDB doesn't have a direct equivalent, so mydborm stores
+  it as a `VARCHAR` sized to fit the longest choice, and still
+  validates that only allowed values are saved.
+- **`SetField(choices=[...])`** — zero or more values from a fixed
+  list, stored together in one column, e.g. a list of tags. MySQL uses
+  its native comma-separated `SET(...)` type; YugabyteDB stores it as
+  a native array (`TEXT[]`). You can pass either a list/tuple/set of
+  strings, or a single comma-separated string — both are accepted.
+
+```python
+from mydborm import EnumField, SetField
+
+class Order(BaseModel):
+    __tablename__ = "orders"
+    id     = IntField(primary_key=True)
+    status = EnumField(choices=["pending", "processing", "shipped", "delivered"])
+    tags   = SetField(choices=["gift", "fragile", "rush", "international"])
+
+oid = Order.create(status="pending", tags=["gift", "rush"])
+
+try:
+    Order.create(status="lost-in-space")
+except ValueError as e:
+    print(e)  # Field 'status' must be one of [...]. Got: 'lost-in-space'
+```
+
+---
+
+## Password and encrypted fields
+
+For sensitive data, mydborm provides two purpose-built field types
+instead of expecting you to roll your own hashing or encryption:
+
+- **`PasswordField`** — automatically hashes whatever string you assign
+  to it using bcrypt before it's saved. The hash is one-way: there's no
+  way to recover the original password from it, which is exactly what
+  you want for login credentials. You check a password later with
+  `PasswordField.verify(plain, hashed)`.
+- **`EncryptedField`** — automatically encrypts the value using AES
+  (via the `cryptography` library's Fernet scheme) before saving, and
+  can decrypt it back when you need the original value. Use this for
+  things you need to retrieve later in their original form, like API
+  keys or tokens — unlike `PasswordField`, this is two-way.
+
+Both require the optional `security` extra:
+
+```bash
+pip install mydborm[security]
+```
+
+```python
+from mydborm import BaseModel, IntField, StrField, PasswordField
+
+class User(BaseModel):
+    __tablename__ = "users"
+    id       = IntField(primary_key=True)
+    username = StrField(max_length=50, nullable=False)
+    password = PasswordField(nullable=False)
+
+# Password is hashed automatically — you never see or store the raw value
+uid = User.create(username="alice", password="mysecretpass")
+
+user = User.get(id=uid)
+print(PasswordField.verify("mysecretpass", user["password"]))  # True
+print(PasswordField.verify("wrongpass", user["password"]))     # False
+```
+
+The full walkthrough — including `EncryptedField`, key generation, and
+security best practices — lives on its own page: see
+[Security](security.md).
+
+---
+
+## Custom validators
+
+The `nullable`, `unique`, and `max_length` options cover the basics,
+but sometimes you need a more specific rule — "must look like an
+email address," "must be between 1 and 5," "must be one of these
+exact strings." That's what the `validators` option is for: pass a
+list of validator objects to any field, and mydborm runs them every
+time you `create()` or `update()` a row, before anything is sent to
+the database.
 
 ```python
 from mydborm import StrField, EmailValidator
@@ -600,180 +979,25 @@ class Contact(BaseModel):
     email = StrField(max_length=255, nullable=False,
                      validators=[EmailValidator()])
 
-# Valid
 Contact.create(email="alice@example.com")        # OK
-Contact.create(email="user.name+tag@domain.co.uk")  # OK
 
-# Invalid
 try:
     Contact.create(email="not-an-email")
 except ValueError as e:
     print(e)
     # Field 'email' must be a valid email address. Got: 'not-an-email'
-
-try:
-    Contact.create(email="missing@domain")
-except ValueError as e:
-    print(e)
-    # Field 'email' must be a valid email address. Got: 'missing@domain'
 ```
 
-### UrlValidator
+mydborm ships six built-in validators covering the most common cases —
+email format, URL format, regex patterns, numeric ranges, minimum
+string length, and fixed choice lists — and you can attach more than
+one to the same field, or write your own. The full reference, with
+examples for each one, lives on its own page: see
+[Validators](validators.md).
 
-```python
-from mydborm import StrField, UrlValidator
-
-class Website(BaseModel):
-    __tablename__ = "websites"
-    id  = IntField(primary_key=True)
-    url = StrField(max_length=500, nullable=False,
-                   validators=[UrlValidator()])
-
-Website.create(url="https://example.com")         # OK
-Website.create(url="http://example.com/path?q=1") # OK
-
-try:
-    Website.create(url="example.com")   # missing http://
-except ValueError as e:
-    print(e)  # Field 'url' must be a valid URL. Got: 'example.com'
-
-try:
-    Website.create(url="ftp://example.com")   # only http/https
-except ValueError as e:
-    print(e)  # Field 'url' must be a valid URL. Got: 'ftp://example.com'
-```
-
-### RangeValidator
-
-```python
-from mydborm import IntField, FloatField, RangeValidator
-
-class Product(BaseModel):
-    __tablename__ = "products"
-    id       = IntField(primary_key=True)
-    price    = FloatField(nullable=False,
-                          validators=[RangeValidator(min_val=0.01, max_val=99999.99)])
-    discount = IntField(nullable=True,
-                        validators=[RangeValidator(min_val=0, max_val=100)])
-    rating   = FloatField(nullable=True,
-                          validators=[RangeValidator(min_val=1.0, max_val=5.0)])
-
-Product.create(price=29.99, discount=10, rating=4.5)  # OK
-
-try:
-    Product.create(price=-5.00)   # negative price
-except ValueError as e:
-    print(e)  # Field 'price' must be >= 0.01. Got: -5.0
-
-try:
-    Product.create(price=10.0, discount=150)  # discount > 100
-except ValueError as e:
-    print(e)  # Field 'discount' must be <= 100. Got: 150
-```
-
-### RegexValidator
-
-```python
-from mydborm import StrField, RegexValidator
-
-class Product(BaseModel):
-    __tablename__ = "products"
-    id  = IntField(primary_key=True)
-    sku = StrField(max_length=20, nullable=False,
-                   validators=[RegexValidator(
-                       r'^[A-Z]{2,4}-\d{4}$',
-                       message="SKU format: 2-4 uppercase letters, dash, 4 digits (e.g. PROD-0001)"
-                   )])
-    hex_color = StrField(max_length=7, nullable=True,
-                         validators=[RegexValidator(r'^#[0-9A-Fa-f]{6}$')])
-
-Product.create(sku="PROD-0001", hex_color="#FF5733")  # OK
-Product.create(sku="AB-1234",   hex_color="#000000")  # OK
-
-try:
-    Product.create(sku="prod-0001")   # lowercase not allowed
-except ValueError as e:
-    print(e)  # SKU format: 2-4 uppercase letters, dash, 4 digits (e.g. PROD-0001)
-```
-
-### MinLengthValidator
-
-```python
-from mydborm import StrField, MinLengthValidator
-
-class User(BaseModel):
-    __tablename__ = "users"
-    id       = IntField(primary_key=True)
-    username = StrField(max_length=50, nullable=False,
-                        validators=[MinLengthValidator(3)])
-    password = StrField(max_length=255, nullable=False,
-                        validators=[MinLengthValidator(8)])
-
-User.create(username="alice", password="securepass123")  # OK
-
-try:
-    User.create(username="ab", password="securepass123")
-except ValueError as e:
-    print(e)  # Field 'username' must be at least 3 characters. Got: 2
-```
-
-### ChoiceValidator
-
-```python
-from mydborm import StrField, ChoiceValidator
-
-STATUSES  = ["pending", "processing", "shipped", "delivered", "cancelled"]
-SIZES     = ["XS", "S", "M", "L", "XL", "XXL"]
-PRIORITIES = ["low", "medium", "high", "critical"]
-
-class Order(BaseModel):
-    __tablename__ = "orders"
-    id       = IntField(primary_key=True)
-    status   = StrField(max_length=20, nullable=False,
-                        validators=[ChoiceValidator(STATUSES)])
-    priority = StrField(max_length=10, nullable=False, default="medium",
-                        validators=[ChoiceValidator(PRIORITIES)])
-
-Order.create(status="pending", priority="high")  # OK
-
-try:
-    Order.create(status="unknown")
-except ValueError as e:
-    print(e)
-    # Field 'status' must be one of ['pending', 'processing', 'shipped',
-    #   'delivered', 'cancelled']. Got: 'unknown'
-```
-
-### Combining validators
-
-```python
-from mydborm import StrField, MinLengthValidator, RegexValidator, ChoiceValidator
-
-class UserAccount(BaseModel):
-    __tablename__ = "user_accounts"
-    id       = IntField(primary_key=True)
-    username = StrField(max_length=30, nullable=False, validators=[
-        MinLengthValidator(3),
-        RegexValidator(r'^[a-zA-Z0-9_]+$',
-                       message="Username may only contain letters, numbers and underscore"),
-    ])
-    role = StrField(max_length=20, nullable=False, validators=[
-        ChoiceValidator(["admin", "editor", "viewer", "guest"]),
-    ])
-
-# All validators run in order — first failure stops
-try:
-    UserAccount.create(username="ab", role="admin")  # too short
-except ValueError as e:
-    print(e)  # Field 'username' must be at least 3 characters
-
-try:
-    UserAccount.create(username="alice smith", role="admin")  # space not allowed
-except ValueError as e:
-    print(e)  # Username may only contain letters, numbers and underscore
-```
-
-### Cross-field validation with __validators__
+You can also validate *across* multiple fields at once (for example,
+"if country is US, state is required") using a model's `__validators__`
+list:
 
 ```python
 class ShippingAddress(BaseModel):
@@ -807,3 +1031,13 @@ try:
 except ValueError as e:
     print(e)  # State is required for US addresses
 ```
+
+## Where to go next
+
+- [Models & CRUD](models.md) — using fields together in a model, and
+  the full create/read/update/delete API
+- [Validators](validators.md) — the complete validator reference
+- [Security](security.md) — `PasswordField` and `EncryptedField` in
+  depth, including key management
+- [Migrations](migrations.md) — changing field definitions on a table
+  that already has data in it
