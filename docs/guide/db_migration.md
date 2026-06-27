@@ -1,10 +1,20 @@
 # Database Migration
 
-`mydborm.migrate` moves schema and data from one live database to another,
-across any combination of MySQL, YugabyteDB, and PostgreSQL. It extracts
-the source schema, maps column types to the target dialect, generates
-`CREATE TABLE`/`CREATE INDEX` DDL, streams rows over in chunks, and
-verifies row counts when it's done.
+This page is about moving data **between two different databases** —
+for example, copying everything from a MySQL database into a fresh
+YugabyteDB one. That's a different problem from the
+[Migrations](migrations.md) guide, which is about keeping *one*
+database's schema in sync with your Python model as it changes over
+time. If you're looking to add a column to an existing table, see
+that page instead — this one is for "move this whole database
+somewhere else."
+
+`mydborm.migrate` handles that move end-to-end: it reads the source
+database's schema, converts each column to the equivalent type on the
+target database, creates the matching tables (`CREATE TABLE` /
+`CREATE INDEX` — the SQL statements that define a table's structure,
+often shortened to "DDL"), copies every row over in manageable
+batches, and double-checks the row counts match when it's done.
 
 Supported source → target pairs:
 
@@ -149,10 +159,12 @@ Duration          : 4.2s
 
 ## Handling large tables
 
-Rows are streamed from the source cursor in batches of `chunk_size`
-(default `500`) and written with `executemany` — the full table is never
-loaded into memory. Each batch retries up to 3 times with a 0.5s backoff
-on transient failures.
+Rows are read from the source in batches of `chunk_size` (500 by
+default) and written to the target one batch at a time — the full
+table is never loaded into memory at once, so this works the same way
+whether a table has a hundred rows or a hundred million. If a batch
+fails for a transient reason (a dropped connection, a brief lock), it
+automatically retries up to 3 times before giving up on that table.
 
 - Raise `chunk_size` (e.g. `2000`–`5000`) for large tables with small rows
   to cut round-trips.
