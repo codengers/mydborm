@@ -555,10 +555,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-create-table" class="md-nav__link">
+  <a href="#2-create-the-table" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Create table
+        2. Create the table
       
     </span>
   </a>
@@ -566,10 +566,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-crud" class="md-nav__link">
+  <a href="#3-crud-create-read-update-delete" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. CRUD
+        3. CRUD: create, read, update, delete
       
     </span>
   </a>
@@ -577,10 +577,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-query-builder" class="md-nav__link">
+  <a href="#4-filtering-and-ordering-with-the-query-builder" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Query builder
+        4. Filtering and ordering with the query builder
       
     </span>
   </a>
@@ -588,10 +588,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-migrations" class="md-nav__link">
+  <a href="#5-keeping-the-database-schema-in-sync" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Migrations
+        5. Keeping the database schema in sync
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-to-go-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to go next
       
     </span>
   </a>
@@ -790,6 +801,34 @@
     
   
     Migrations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../db_migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
   
 
     
@@ -1297,10 +1336,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#2-create-table" class="md-nav__link">
+  <a href="#2-create-the-table" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Create table
+        2. Create the table
       
     </span>
   </a>
@@ -1308,10 +1347,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-crud" class="md-nav__link">
+  <a href="#3-crud-create-read-update-delete" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. CRUD
+        3. CRUD: create, read, update, delete
       
     </span>
   </a>
@@ -1319,10 +1358,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-query-builder" class="md-nav__link">
+  <a href="#4-filtering-and-ordering-with-the-query-builder" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. Query builder
+        4. Filtering and ordering with the query builder
       
     </span>
   </a>
@@ -1330,10 +1369,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-migrations" class="md-nav__link">
+  <a href="#5-keeping-the-database-schema-in-sync" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Migrations
+        5. Keeping the database schema in sync
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-to-go-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to go next
       
     </span>
   </a>
@@ -1361,7 +1411,14 @@
 
 
 <h1 id="quickstart">Quickstart</h1>
+<p>This walks through the core workflow you'll use in almost every
+mydborm project: define a model, create its table, then create, read,
+update, and delete (CRUD) rows. If you haven't installed mydborm or
+connected to a database yet, do that first in
+<a href="../installation/">Installation</a>.</p>
 <h2 id="1-define-a-model">1. Define a model</h2>
+<p>A <strong>model</strong> is a Python class that represents one database table. Each
+class attribute is a <code>Field</code>, and each <code>Field</code> becomes one column:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">IntField</span><span class="p">,</span> <span class="n">StrField</span><span class="p">,</span> <span class="n">BoolField</span><span class="p">,</span> <span class="n">FloatField</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">db</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">dialect</span><span class="o">=</span><span class="s2">&quot;mysql&quot;</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s2">&quot;127.0.0.1&quot;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">3306</span><span class="p">,</span>
@@ -1374,41 +1431,88 @@
 <a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">price</span>    <span class="o">=</span> <span class="n">FloatField</span><span class="p">(</span><span class="n">nullable</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>    <span class="n">active</span>   <span class="o">=</span> <span class="n">BoolField</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </code></pre></div>
-<h2 id="2-create-table">2. Create table</h2>
+<p>A couple of things to notice:</p>
+<ul>
+<li><code>__tablename__</code> is the actual table name in the database. If you
+  leave it out, mydborm guesses one from the class name.</li>
+<li><code>IntField(primary_key=True)</code> marks <code>id</code> as the table's primary key —
+  the unique identifier mydborm uses to look up a specific row.</li>
+<li><code>nullable=False</code> means "this column is required" — trying to save a
+  <code>Product</code> without a <code>name</code> or <code>price</code> raises an error before any SQL
+  is even sent to the database.</li>
+<li><code>default=True</code> means <code>active</code> is automatically <code>True</code> if you don't
+  specify it.</li>
+</ul>
+<p>This class definition doesn't touch the database yet — it's just a
+description. The next step actually creates the table.</p>
+<h2 id="2-create-the-table">2. Create the table</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">Product</span><span class="o">.</span><span class="n">create_table</span><span class="p">()</span>
 </code></pre></div>
-<h2 id="3-crud">3. CRUD</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Create</span>
+<p>This sends a <code>CREATE TABLE</code> statement built from your field
+definitions. You only need to run it once (or again later if you add
+new fields — see <a href="../migrations/">Migrations</a> for handling schema
+changes over time).</p>
+<h2 id="3-crud-create-read-update-delete">3. CRUD: create, read, update, delete</h2>
+<p>With the table in place, you can work with <code>Product</code> rows as Python
+objects instead of writing SQL:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Create — returns the new row&#39;s id</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">pid</span> <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">&quot;Widget&quot;</span><span class="p">,</span> <span class="n">price</span><span class="o">=</span><span class="mf">9.99</span><span class="p">,</span> <span class="n">active</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># Read</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">product</span>  <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">pid</span><span class="p">)</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">products</span> <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">active</span>   <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">active</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">product</span>  <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">pid</span><span class="p">)</span>       <span class="c1"># a single row, by primary key</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">products</span> <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>             <span class="c1"># every row in the table</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">active</span>   <span class="o">=</span> <span class="n">Product</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">active</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># rows matching a simple condition</span>
 <a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="c1"># Update</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="c1"># Update — takes the new values, then which row(s) to apply them to</span>
 <a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="n">Product</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s2">&quot;price&quot;</span><span class="p">:</span> <span class="mf">12.99</span><span class="p">},</span> <span class="nb">id</span><span class="o">=</span><span class="n">pid</span><span class="p">)</span>
 <a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>
 <a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="c1"># Delete</span>
 <a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="n">Product</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">pid</span><span class="p">)</span>
 </code></pre></div>
-<h2 id="4-query-builder">4. Query builder</h2>
+<p><code>Product.get(id=pid)</code> raises an error if no row matches, while
+<code>Product.filter(...)</code> returns an empty list instead of raising — keep
+that difference in mind when deciding which one to use.</p>
+<h2 id="4-filtering-and-ordering-with-the-query-builder">4. Filtering and ordering with the query builder</h2>
+<p><code>.filter()</code> is fine for simple lookups, but real queries usually need
+more — combining conditions, sorting, paging. That's what the
+<strong>query builder</strong> is for: it lets you build up a query piece by piece,
+then run it with <code>.all()</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">results</span> <span class="o">=</span> <span class="p">(</span><span class="n">Product</span><span class="o">.</span><span class="n">query</span><span class="p">()</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>                  <span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>                  <span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;price__lt&quot;</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">)</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>                  <span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;price__lt&quot;</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">)</span>   <span class="c1"># price less than 20</span>
 <a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>                  <span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">)</span>
 <a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>                  <span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
 <a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>                  <span class="o">.</span><span class="n">all</span><span class="p">())</span>
 </code></pre></div>
-<h2 id="5-migrations">5. Migrations</h2>
+<p>Each <code>.where(...)</code> call adds another condition (they're combined with
+<code>AND</code>). See <a href="../query_builder/">Query Builder</a> for the full set of
+available operators, joins, and aggregates.</p>
+<h2 id="5-keeping-the-database-schema-in-sync">5. Keeping the database schema in sync</h2>
+<p>As your model changes over time — adding a column, renaming one — your
+database table needs to change too. mydborm can compare your model
+against the live table and generate the SQL for you:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.migrations</span><span class="w"> </span><span class="kn">import</span> <span class="n">migrate</span><span class="p">,</span> <span class="n">generate</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># Apply migration</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">migrate</span><span class="p">(</span><span class="n">Product</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;create products table&quot;</span><span class="p">)</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="c1"># Generate SQL file</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">generate</span><span class="p">(</span><span class="n">Product</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="s2">&quot;migrations/&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># Compare Product&#39;s fields against the database and apply any</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># differences (e.g. add a missing column) right away</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">migrate</span><span class="p">(</span><span class="n">Product</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;create products table&quot;</span><span class="p">)</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1"># Or write the SQL to a file instead of applying it immediately,</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="c1"># so you can review it first or commit it to version control</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">generate</span><span class="p">(</span><span class="n">Product</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="s2">&quot;migrations/&quot;</span><span class="p">)</span>
 </code></pre></div>
+<p>See <a href="../migrations/">Migrations</a> for the full workflow, including
+rollbacks and tracking which migrations have already been applied.</p>
+<h2 id="where-to-go-next">Where to go next</h2>
+<ul>
+<li><a href="../models/">Models &amp; CRUD</a> — more on defining models and the full
+  CRUD API</li>
+<li><a href="../fields/">Fields</a> — every available field type, including
+  passwords and encrypted columns</li>
+<li><a href="../query_builder/">Query Builder</a> — joins, grouping, subqueries</li>
+<li><a href="../relationships/">Relationships</a> — linking models together
+  (<code>has_many</code>, <code>belongs_to</code>, <code>many_to_many</code>)</li>
+</ul>
 
 
 

@@ -708,6 +708,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../db_migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../bulk_ops/" class="md-nav__link">
         
   
@@ -1295,7 +1323,29 @@
 
 
 <h1 id="async-support">Async support</h1>
+<p>Everything covered elsewhere in these docs — <code>BaseModel</code>, <code>db.configure()</code>,
+the query builder — is <strong>synchronous</strong>: when you call <code>User.get(id=1)</code>, your
+program stops and waits until the database responds before moving on to the
+next line. For a script or a small CLI tool, that's completely fine.</p>
+<p>It becomes a problem inside a web server handling many requests at once
+(like a <a href="https://fastapi.tiangolo.com/">FastAPI</a> app). A synchronous
+database call blocks the <em>entire</em> process while it waits — so one slow
+query can stall every other request the server is trying to handle at the
+same time, even ones that have nothing to do with that query. mydborm's
+<strong>async support</strong> — <code>AsyncBaseModel</code> and <code>async_db</code> — lets the server hand
+off to other work while waiting on the database, instead of sitting idle.
+This assumes you're already familiar with Python's <code>async</code>/<code>await</code> syntax;
+if not, the short version is that <code>await</code> marks a point where your code can
+pause and let other tasks run until the thing being awaited is ready.</p>
+<p>Installing the <code>async</code> extra (<code>pip install mydborm[async]</code>) pulls in
+<code>aiomysql</code> and <code>aiopg</code>, the underlying async database drivers mydborm uses
+for MySQL and YugabyteDB/PostgreSQL respectively.</p>
 <h2 id="configure">Configure</h2>
+<p>The async API mirrors the synchronous one closely, with two differences:
+every database-touching call needs <code>await</code> in front of it, and configuration
+happens through <code>async_db</code> instead of <code>db</code>. Define your model by subclassing
+<code>AsyncBaseModel</code> instead of <code>BaseModel</code> — field definitions work exactly the
+same way:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.async_db</span><span class="w"> </span><span class="kn">import</span> <span class="n">async_db</span><span class="p">,</span> <span class="n">AsyncBaseModel</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.fields</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntField</span><span class="p">,</span> <span class="n">StrField</span>
@@ -1322,7 +1372,23 @@
 <a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>
 <a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
 </code></pre></div>
+<p>A few things to notice if you're coming from the sync API:</p>
+<ul>
+<li><code>async_db.configure(...)</code> must itself be awaited — it opens a connection
+  pool in the background, which is itself an async operation.</li>
+<li><code>create_table()</code>, <code>create()</code>, <code>get()</code>, <code>all()</code>, <code>filter()</code>, <code>update()</code>,
+  and <code>delete()</code> all exist on <code>AsyncBaseModel</code> with the same names and
+  arguments as <code>BaseModel</code> — just <code>await</code> each call.</li>
+<li>Call <code>await async_db.close()</code> when you're done (for example, when your
+  application shuts down) to close the pool's connections cleanly.</li>
+</ul>
+<p>In a real FastAPI app, you'd typically call <code>async_db.configure(...)</code> once
+during application startup, and then <code>await</code> model calls inside your
+endpoint functions — that's what lets FastAPI keep serving other requests
+while one endpoint is waiting on a slow query.</p>
 <h2 id="yugabytedb-async">YugabyteDB async</h2>
+<p>Async support works the same way against YugabyteDB (or PostgreSQL) — just
+change the <code>dialect</code>, <code>port</code>, and credentials to match:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">await</span> <span class="n">async_db</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">dialect</span>  <span class="o">=</span> <span class="s2">&quot;yugabyte&quot;</span><span class="p">,</span>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">host</span>     <span class="o">=</span> <span class="s2">&quot;127.0.0.1&quot;</span><span class="p">,</span>
@@ -1332,6 +1398,8 @@
 <a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">database</span> <span class="o">=</span> <span class="s2">&quot;yugabyte&quot;</span><span class="p">,</span>
 <a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">)</span>
 </code></pre></div>
+<p>Everything else — <code>AsyncUser.create()</code>, <code>.get()</code>, <code>.all()</code>, and so on —
+works identically regardless of which dialect you configured.</p>
 
 
 

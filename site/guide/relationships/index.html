@@ -810,6 +810,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../db_migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../bulk_ops/" class="md-nav__link">
         
   
@@ -1361,15 +1389,50 @@
 
 
 <h1 id="relationships">Relationships</h1>
+<p>Real data is rarely just one flat table. An author has books, a book has
+one author, and a student is enrolled in many courses while each course has
+many students. <strong>Relationships</strong> are how mydborm lets you navigate between
+related rows without writing a JOIN by hand every time — you call a method
+(or access an attribute) on one model instance and get back the related
+row or rows.</p>
+<p>There are three shapes of relationship, matching the three common ways
+tables refer to each other:</p>
+<ul>
+<li><strong>has_many</strong> — one row relates to many rows in another table (one author,
+  many books)</li>
+<li><strong>belongs_to</strong> — the reverse: one row points back to a single parent row
+  (a book belongs to one author)</li>
+<li><strong>many_to_many</strong> — rows on both sides can relate to multiple rows on the
+  other side, via a separate join table (students and courses)</li>
+</ul>
 <h2 id="has_many">has_many</h2>
+<p>Use <code>has_many</code> when the <em>other</em> table has a foreign key column pointing
+back at this one — for example, a <code>books</code> table with an <code>author_id</code> column.
+Calling <code>.has_many()</code> on an author instance fetches every book whose
+<code>author_id</code> matches that author's primary key:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">author</span> <span class="o">=</span> <span class="n">Author</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">books</span>  <span class="o">=</span> <span class="n">author</span><span class="o">.</span><span class="n">has_many</span><span class="p">(</span><span class="n">Book</span><span class="p">,</span> <span class="n">foreign_key</span><span class="o">=</span><span class="s2">&quot;author_id&quot;</span><span class="p">)</span>
 </code></pre></div>
+<p><code>foreign_key</code> tells mydborm which column on the <em>related</em> table (<code>Book</code>) to
+match against this instance's id. If you don't pass it, mydborm guesses
+<code>&lt;this_model_name&gt;_id</code> — so for <code>Author</code> it would assume <code>author_id</code> — but
+it's good practice to spell it out so the code stays readable.</p>
 <h2 id="belongs_to">belongs_to</h2>
+<p><code>belongs_to</code> is the mirror image — use it on the table that <em>holds</em> the
+foreign key, to fetch the single parent row it points to:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">book</span>   <span class="o">=</span> <span class="n">Book</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">author</span> <span class="o">=</span> <span class="n">book</span><span class="o">.</span><span class="n">belongs_to</span><span class="p">(</span><span class="n">Author</span><span class="p">,</span> <span class="n">foreign_key</span><span class="o">=</span><span class="s2">&quot;author_id&quot;</span><span class="p">)</span>
 </code></pre></div>
+<p>Here <code>foreign_key</code> is the column on <code>Book</code> itself (the side you're calling
+this from) that stores the related author's id. If omitted, mydborm guesses
+<code>&lt;related_model_name&gt;_id</code>, i.e. <code>author_id</code> for a call to
+<code>belongs_to(Author)</code>.</p>
 <h2 id="many_to_many">many_to_many</h2>
+<p>Some relationships can't be expressed with a single foreign key on either
+side — a student can take many courses, and a course can have many
+students. These need a <strong>join table</strong> (sometimes called an "association
+table") that just stores pairs of ids, one row per student/course
+combination:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">student</span> <span class="o">=</span> <span class="n">Student</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">courses</span> <span class="o">=</span> <span class="n">student</span><span class="o">.</span><span class="n">many_to_many</span><span class="p">(</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>    <span class="n">Course</span><span class="p">,</span>
@@ -1378,7 +1441,19 @@
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">target_key</span> <span class="o">=</span> <span class="s2">&quot;course_id&quot;</span>
 <a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="p">)</span>
 </code></pre></div>
+<p><code>join_table</code> is the name of that link table. <code>source_key</code> is the column in
+the join table that refers back to <em>this</em> model (<code>Student</code>), and
+<code>target_key</code> is the column that refers to the model you're fetching
+(<code>Course</code>). Both default to <code>&lt;model_name&gt;_id</code> if you leave them out, but as
+with <code>has_many</code>/<code>belongs_to</code>, naming them explicitly avoids surprises.</p>
 <h2 id="lazy-loading">Lazy loading</h2>
+<p>The relationship calls above (<code>has_many</code>, <code>belongs_to</code>, <code>many_to_many</code>) run
+a query immediately, every time you call them. <strong>Lazy loading</strong> is a
+slightly different pattern: you declare the relationship once as part of
+the model, and the actual database query only happens the first time you
+<em>access</em> the attribute — not when the object is loaded. After that first
+access, the result is cached on the instance, so accessing it again doesn't
+re-run the query:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.model</span><span class="w"> </span><span class="kn">import</span> <span class="n">LazyRelation</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">Author</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
@@ -1388,13 +1463,32 @@
 <a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">books</span> <span class="o">=</span> <span class="n">LazyRelation</span><span class="p">(</span><span class="s2">&quot;Book&quot;</span><span class="p">,</span> <span class="n">foreign_key</span><span class="o">=</span><span class="s2">&quot;author_id&quot;</span><span class="p">)</span>
 <a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
 <a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">author</span> <span class="o">=</span> <span class="n">Author</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
-<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="n">books</span>  <span class="o">=</span> <span class="n">author</span><span class="o">.</span><span class="n">books</span>   <span class="c1"># loaded on first access, cached after</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="n">books</span>  <span class="o">=</span> <span class="n">author</span><span class="o">.</span><span class="n">books</span>   <span class="c1"># query runs here, on first access</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="n">books</span>  <span class="o">=</span> <span class="n">author</span><span class="o">.</span><span class="n">books</span>   <span class="c1"># second access — returns the cached list, no new query</span>
 </code></pre></div>
+<p>This is convenient because <code>Author.get(id=1)</code> stays a cheap, single-table
+query — you only pay for loading <code>books</code> if your code actually asks for it.</p>
 <h2 id="eager-loading">Eager loading</h2>
+<p>Lazy loading has a downside if you're not careful: if you load a list of
+50 authors and then access <code>.books</code> on each one inside a loop, that's 50
+separate queries — one per author — on top of the original query that
+fetched the authors. This is known as the <strong>N+1 query problem</strong>, and it's
+one of the most common performance mistakes when working with an ORM.</p>
+<p><strong>Eager loading</strong> solves this by fetching the related rows for <em>all</em> the
+authors in one extra query, up front, instead of one query per author.
+You ask for it with <code>.include()</code> on the query builder, naming the relation
+you want preloaded:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">authors</span> <span class="o">=</span> <span class="n">Author</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">include</span><span class="p">(</span><span class="s2">&quot;books&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">authors</span><span class="p">:</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">books</span><span class="p">)</span>  <span class="c1"># already loaded, no extra queries</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">books</span><span class="p">)</span>  <span class="c1"># already loaded — no extra queries inside the loop</span>
 </code></pre></div>
+<p><code>.include()</code> only works with relations declared as <code>LazyRelation</code> on the
+model (like <code>books</code> above) — it looks up that descriptor, runs one batched
+query for every author in the result set, and attaches each author's books
+before you ever start the loop. The rule of thumb: if you're going to
+access a relationship for every row in a list, eager-load it with
+<code>.include()</code>; if you only need it occasionally, lazy loading is simpler and
+avoids fetching data you might not use.</p>
 
 
 

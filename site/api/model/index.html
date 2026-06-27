@@ -703,6 +703,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../guide/db_migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../guide/bulk_ops/" class="md-nav__link">
         
   
@@ -1150,6 +1178,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#mydborm.model.BaseModel.create_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_index
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#mydborm.model.BaseModel.create_table" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1165,6 +1204,17 @@
     <span class="md-ellipsis">
       
         delete
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mydborm.model.BaseModel.drop_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        drop_index
       
     </span>
   </a>
@@ -1242,6 +1292,17 @@
     <span class="md-ellipsis">
       
         has_many
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mydborm.model.BaseModel.list_indexes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_indexes
       
     </span>
   </a>
@@ -1700,6 +1761,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#mydborm.model.BaseModel.create_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_index
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#mydborm.model.BaseModel.create_table" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1715,6 +1787,17 @@
     <span class="md-ellipsis">
       
         delete
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mydborm.model.BaseModel.drop_index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        drop_index
       
     </span>
   </a>
@@ -1792,6 +1875,17 @@
     <span class="md-ellipsis">
       
         has_many
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mydborm.model.BaseModel.list_indexes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        list_indexes
       
     </span>
   </a>
@@ -2254,6 +2348,118 @@ YugabyteDB → INSERT ... ON CONFLICT DO UPDATE</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="mydborm.model.BaseModel.create_index" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">create_index</span><span class="p">(</span><span class="n">fields</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">unique</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Create an index on one or more columns.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>fields </code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>list of field names to index</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>name   </code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>optional index name (auto-generated if not provided)</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>unique </code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>if True creates a UNIQUE index</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Index name created.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="usage" open>
+  <summary>Usage</summary>
+  <p>Product.create_index(["category"])
+Product.create_index(["category", "price"], name="idx_cat_price")
+Product.create_index(["email"], unique=True)</p>
+</details>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="mydborm.model.BaseModel.create_table" class="doc doc-heading">
             <code class="highlight language-python"><span class="n">create_table</span><span class="p">(</span><span class="n">if_not_exists</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></code>
 
@@ -2289,9 +2495,67 @@ YugabyteDB → INSERT ... ON CONFLICT DO UPDATE</p>
     <div class="doc doc-contents ">
 
         <p>Delete rows matching kwargs.
-Returns number of deleted rows.</p>
-<p>User.delete(id=1)</p>
+Returns number of deleted rows.
+User.delete(id=1)</p>
 
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="mydborm.model.BaseModel.drop_index" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">drop_index</span><span class="p">(</span><span class="n">name</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Drop an index by name.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>name</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>index name to drop</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="usage" open>
+  <summary>Usage</summary>
+  <p>Product.drop_index("idx_products_category")</p>
+</details>
 
     </div>
 
@@ -2471,6 +2735,58 @@ books  = author.has_many(Book, foreign_key="author_id")</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="mydborm.model.BaseModel.list_indexes" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">list_indexes</span><span class="p">()</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>List all indexes on this model's table.</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="list">list</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of dicts with index info.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<details class="usage" open>
+  <summary>Usage</summary>
+  <p>indexes = Product.list_indexes()
+for idx in indexes:
+    print(idx["name"], idx["columns"], idx["unique"])</p>
+</details>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="mydborm.model.BaseModel.many_to_many" class="doc doc-heading">
             <code class="highlight language-python"><span class="n">many_to_many</span><span class="p">(</span><span class="n">related_model</span><span class="p">,</span> <span class="n">join_table</span><span class="p">,</span> <span class="n">source_key</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">target_key</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
@@ -2572,8 +2888,8 @@ for field, details in info["fields"].items():
     <div class="doc doc-contents ">
 
         <p>Update rows matching where_kwargs with data.
-Returns number of affected rows.</p>
-<p>User.update({"active": False}, id=1)</p>
+Returns number of affected rows.
+User.update({"active": False}, id=1)</p>
 
 
     </div>
