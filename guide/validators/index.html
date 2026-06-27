@@ -708,6 +708,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../db_migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../bulk_ops/" class="md-nav__link">
         
   
@@ -1493,8 +1521,27 @@
 
 
 <h1 id="validators">Validators</h1>
-<p>mydborm provides 6 built-in validators that attach directly to field definitions.
-Validation runs automatically on every <code>create()</code> and <code>update()</code> call.</p>
+<p>When you save a row, you want to catch bad data <em>before</em> it ever reaches
+the database — a malformed email, a rating of 11 out of 5, a status that
+isn't one of the ones your app understands. That's what a <strong>validator</strong>
+is for: a small rule attached to a field that checks the value and
+raises a Python error if it doesn't pass.</p>
+<p>This is different from a database constraint. A validator runs <strong>in
+Python, on your machine, before any SQL is sent</strong> — not as a rule
+stored inside the database itself (the kind of rule database people
+call a "CHECK constraint"). That means:</p>
+<ul>
+<li>The error happens immediately, with a clear Python message, instead
+  of a cryptic database error after a network round trip.</li>
+<li>The check works the same way no matter which database you're using
+  (MySQL, PostgreSQL, or YugabyteDB).</li>
+<li>You can write your own validators in plain Python — no SQL required.</li>
+</ul>
+<p>mydborm runs validators automatically every time you call <code>create()</code> or
+<code>update()</code>. You don't have to call anything yourself — just attach a
+validator to a field when you define your model, and mydborm checks it
+on every save from then on. There are 6 built-in validators, and you
+can write custom ones too.</p>
 <hr />
 <h2 id="import-validators">Import validators</h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -1504,12 +1551,17 @@ Validation runs automatically on every <code>create()</code> and <code>update()<
 <a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">RangeValidator</span><span class="p">,</span>
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">MinLengthValidator</span><span class="p">,</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">ChoiceValidator</span><span class="p">,</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">ValidationRule</span><span class="p">,</span>   <span class="c1"># base class for custom validators</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">ValidationRule</span><span class="p">,</span>   <span class="c1"># base class for writing your own custom validators</span>
 <a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="p">)</span>
 </code></pre></div>
+<p>Each one is attached to a field through that field's <code>validators=[...]</code>
+argument — you can attach one or several to the same field, as you'll
+see further down.</p>
 <hr />
 <h2 id="emailvalidator">EmailValidator</h2>
-<p>Validates email address format using RFC-compliant regex.</p>
+<p>Checks that a string looks like a valid email address (using a regular
+expression — a pattern-matching rule — under the hood, so you don't have
+to write the pattern yourself).</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">IntField</span><span class="p">,</span> <span class="n">StrField</span><span class="p">,</span> <span class="n">EmailValidator</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
 <a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">Contact</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
@@ -1543,11 +1595,21 @@ Validation runs automatically on every <code>create()</code> and <code>update()<
 <a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
 <a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>    <span class="c1"># Field &#39;email&#39; must be a valid email address. Got: &#39;@nodomain.com&#39;</span>
 </code></pre></div>
-<p><strong>Pattern used:</strong> <code>^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$</code></p>
-<p><strong>None passes:</strong> <code>email = None</code> is valid when <code>nullable=True</code>.</p>
+<p>Each <code>try</code>/<code>except</code> block above shows the same pattern you'll use
+everywhere in this guide: call <code>create()</code> or <code>update()</code>, and if a
+validator fails, mydborm raises a <code>ValueError</code> with a message you can
+catch and show to the user (or log).</p>
+<p><strong>Pattern used:</strong> <code>^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$</code>
+— that's the regular expression mydborm checks the value against. You
+don't need to understand regex syntax to use the validator; it's only
+shown here for anyone curious or debugging an edge case.</p>
+<p><strong>None passes:</strong> if the field is <code>nullable=True</code>, setting <code>email = None</code>
+skips the validator entirely — there's nothing to check.</p>
 <hr />
 <h2 id="urlvalidator">UrlValidator</h2>
-<p>Validates URL format — requires <code>http://</code> or <code>https://</code> prefix.</p>
+<p>Checks that a string is a URL starting with <code>http://</code> or <code>https://</code>.
+Anything else — a bare domain, a different protocol, random text — is
+rejected.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">UrlValidator</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">Website</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
@@ -1577,9 +1639,17 @@ Validation runs automatically on every <code>create()</code> and <code>update()<
 <a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a><span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
 <a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>   <span class="c1"># Field &#39;url&#39; must be a valid URL. Got: &#39;not a url at all&#39;</span>
 </code></pre></div>
+<p>Note that <code>example.com</code> without a protocol fails — mydborm doesn't try
+to guess what you meant, it just checks for <code>http://</code> or <code>https://</code> at
+the start.</p>
 <hr />
 <h2 id="regexvalidator">RegexValidator</h2>
-<p>Validates a value matches a custom regular expression pattern.</p>
+<p>The three validators above are really just convenient shortcuts for
+common patterns. <code>RegexValidator</code> is the general-purpose version: give
+it any regular expression (a text pattern describing what a valid value
+looks like) and it checks values against that pattern. Reach for this
+when you need a format the built-in validators don't cover — product
+SKUs, hex color codes, phone numbers, anything with a predictable shape.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">RegexValidator</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">Product</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
@@ -1619,15 +1689,23 @@ Validation runs automatically on every <code>create()</code> and <code>update()<
 <a id="__codelineno-3-37" name="__codelineno-3-37" href="#__codelineno-3-37"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
 <a id="__codelineno-3-38" name="__codelineno-3-38" href="#__codelineno-3-38"></a>    <span class="c1"># Field &#39;hex_color&#39; does not match pattern &#39;^#[0-9A-Fa-f]{6}$&#39;. Got: &#39;red&#39;</span>
 </code></pre></div>
+<p>Passing your own <code>message=</code> (like the <code>sku</code> field does above) replaces
+mydborm's default error text with something more useful to whoever
+reads it. If you skip <code>message</code>, you get a generic message that
+includes the raw pattern — fine for debugging, less fine for showing to
+an end user.</p>
 <p><strong>Constructor:</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">RegexValidator</span><span class="p">(</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>          <span class="c1"># regex pattern string</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>          <span class="c1"># the regex pattern to match against</span>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="n">message</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>   <span class="c1"># custom error message (optional)</span>
 <a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="p">)</span>
 </code></pre></div>
 <hr />
 <h2 id="rangevalidator">RangeValidator</h2>
-<p>Validates a numeric value is within a minimum and maximum range.</p>
+<p>Checks that a number falls between a minimum and a maximum (both
+inclusive — meaning the boundary values themselves are allowed). Use it
+for ratings, percentages, prices, ages, or any number that only makes
+sense within certain bounds.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">RangeValidator</span><span class="p">,</span> <span class="n">IntField</span><span class="p">,</span> <span class="n">FloatField</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">Survey</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
@@ -1667,16 +1745,21 @@ Validation runs automatically on every <code>create()</code> and <code>update()<
 <a id="__codelineno-5-37" name="__codelineno-5-37" href="#__codelineno-5-37"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
 <a id="__codelineno-5-38" name="__codelineno-5-38" href="#__codelineno-5-38"></a>    <span class="c1"># Field &#39;age&#39; must be &gt;= 13. Got: 10</span>
 </code></pre></div>
+<p>Notice <code>age</code> only sets <code>min_val</code> and <code>score</code> only sets <code>max_val</code> — you
+don't have to specify both ends. Leave either one out (it defaults to
+<code>None</code>) if you only care about one side of the range.</p>
 <p><strong>Constructor:</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">RangeValidator</span><span class="p">(</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="n">min_val</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>   <span class="c1"># minimum value (inclusive)</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">max_val</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>   <span class="c1"># maximum value (inclusive)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>    <span class="n">min_val</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>   <span class="c1"># minimum allowed value (inclusive)</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>    <span class="n">max_val</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>   <span class="c1"># maximum allowed value (inclusive)</span>
 <a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="p">)</span>
 </code></pre></div>
-<p>Both <code>min_val</code> and <code>max_val</code> are optional — use one or both.</p>
 <hr />
 <h2 id="minlengthvalidator">MinLengthValidator</h2>
-<p>Validates a string meets a minimum character length.</p>
+<p>Checks that a string is at least a certain number of characters long.
+Handy for usernames, passwords, or any text field where "too short" is
+a meaningful error (rather than letting an empty or one-character value
+silently slip through).</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">MinLengthValidator</span>
 <a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
 <a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">UserAccount</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
@@ -1708,12 +1791,21 @@ Validation runs automatically on every <code>create()</code> and <code>update()<
 <a id="__codelineno-7-29" name="__codelineno-7-29" href="#__codelineno-7-29"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
 <a id="__codelineno-7-30" name="__codelineno-7-30" href="#__codelineno-7-30"></a>    <span class="c1"># Field &#39;password&#39; must be at least 8 characters. Got: 5</span>
 </code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Don't store real passwords as plain <code>StrField</code>s</p>
+<p>The example above uses a plain <code>StrField</code> for <code>password</code> just to
+demonstrate <code>MinLengthValidator</code>. In a real app, use <code>PasswordField</code>
+instead — it automatically hashes the password so you never store
+it as readable text. See <a href="../security/">Security</a> for details.</p>
+</div>
 <p><strong>Constructor:</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">MinLengthValidator</span><span class="p">(</span><span class="n">min_length</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span>
 </code></pre></div>
 <hr />
 <h2 id="choicevalidator">ChoiceValidator</h2>
-<p>Validates a value is one of a fixed set of allowed choices.</p>
+<p>Checks that a value is one of a fixed list of allowed options — useful
+for things like order status, priority level, or any field where only
+a specific, known set of values makes sense.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChoiceValidator</span>
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>
 <a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">STATUSES</span>   <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;pending&quot;</span><span class="p">,</span> <span class="s2">&quot;processing&quot;</span><span class="p">,</span> <span class="s2">&quot;shipped&quot;</span><span class="p">,</span> <span class="s2">&quot;delivered&quot;</span><span class="p">,</span> <span class="s2">&quot;cancelled&quot;</span><span class="p">,</span> <span class="s2">&quot;refunded&quot;</span><span class="p">]</span>
@@ -1749,16 +1841,31 @@ Validation runs automatically on every <code>create()</code> and <code>update()<
 <a id="__codelineno-9-33" name="__codelineno-9-33" href="#__codelineno-9-33"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
 <a id="__codelineno-9-34" name="__codelineno-9-34" href="#__codelineno-9-34"></a>    <span class="c1"># Field &#39;priority&#39; must be one of [&#39;low&#39;, &#39;medium&#39;, &#39;high&#39;, &#39;critical&#39;]. Got: &#39;CRITICAL&#39;</span>
 </code></pre></div>
+<p>The comparison is exact and case-sensitive — <code>"CRITICAL"</code> does not match
+<code>"critical"</code> in the list. If you want to accept either case, convert the
+value yourself before saving (e.g. <code>priority.lower()</code>).</p>
 <div class="admonition tip">
-<p class="admonition-title">Use ChoiceValidator vs EnumField</p>
-<p><code>ChoiceValidator</code> validates at the Python level — the DB stores a plain VARCHAR.
-<code>EnumField</code> validates AND creates a MySQL ENUM column — stricter at the DB level.
-Use <code>ChoiceValidator</code> when you might add/remove choices without a migration.
-Use <code>EnumField</code> when you want DB-level enforcement too.</p>
+<p class="admonition-title">ChoiceValidator vs EnumField — which one should I use?</p>
+<p>Both restrict a field to a fixed set of values, but they enforce it
+in different places:</p>
+<ul>
+<li><code>ChoiceValidator</code> checks the value in <strong>Python</strong>, before the SQL
+  is sent. The database column itself is a plain <code>VARCHAR</code> with no
+  restriction of its own.</li>
+<li><code>EnumField</code> is a different kind of field entirely — it checks the
+  value in Python <em>and</em> creates a MySQL <code>ENUM</code> column, so the
+  database itself also refuses invalid values, even if some other
+  tool writes to the table directly.</li>
+</ul>
+<p>Use <code>ChoiceValidator</code> if your list of allowed values might change
+without you wanting to run a database migration. Use <code>EnumField</code> if
+you want the database to enforce the rule too.</p>
 </div>
 <hr />
 <h2 id="combining-multiple-validators">Combining multiple validators</h2>
-<p>Attach multiple validators to one field — they run in order, stopping at the first failure:</p>
+<p>A field can have more than one validator. They run in the order you
+list them, and stop at the very first one that fails — so put your
+fastest or most "obvious" check first if it matters to you.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">MinLengthValidator</span><span class="p">,</span> <span class="n">RegexValidator</span><span class="p">,</span> <span class="n">ChoiceValidator</span>
 <a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
 <a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">BlogPost</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
@@ -1790,9 +1897,16 @@ Use <code>EnumField</code> when you want DB-level enforcement too.</p>
 <a id="__codelineno-10-29" name="__codelineno-10-29" href="#__codelineno-10-29"></a><span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
 <a id="__codelineno-10-30" name="__codelineno-10-30" href="#__codelineno-10-30"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>   <span class="c1"># Slug may only contain lowercase letters, numbers, and hyphens</span>
 </code></pre></div>
+<p>In the second example, <code>"My Post Title"</code> is 13 characters long, so it
+sails past <code>MinLengthValidator(3)</code> — but it has spaces and uppercase
+letters, so it fails the regex check that runs next.</p>
 <hr />
 <h2 id="cross-field-validation">Cross-field validation</h2>
-<p>Use <code>__validators__</code> on the model class for rules that span multiple fields:</p>
+<p>Everything above checks <strong>one field</strong> in isolation. Sometimes a rule
+depends on more than one field at once — for example, "the discount
+percentage can't exceed 100, but only if a minimum order amount is also
+set." For that, use <code>__validators__</code> on the model class itself instead
+of on an individual field:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">Discount</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
 <a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>    <span class="n">__tablename__</span> <span class="o">=</span> <span class="s2">&quot;discounts&quot;</span>
 <a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>    <span class="nb">id</span>          <span class="o">=</span> <span class="n">IntField</span><span class="p">(</span><span class="n">primary_key</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -1824,61 +1938,88 @@ Use <code>EnumField</code> when you want DB-level enforcement too.</p>
 <a id="__codelineno-11-29" name="__codelineno-11-29" href="#__codelineno-11-29"></a><span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
 <a id="__codelineno-11-30" name="__codelineno-11-30" href="#__codelineno-11-30"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>   <span class="c1"># min_order must be a positive number</span>
 </code></pre></div>
+<p>Each entry in <code>__validators__</code> is a function that receives the full
+dictionary of values being saved (<code>data</code>) and can raise a <code>ValueError</code>
+if something about the <em>combination</em> of fields is wrong. The
+<code>lambda data: (_ for _ in ()).throw(...)</code> lines look unusual — that's
+just a one-line trick for raising an exception inside a <code>lambda</code>, since
+Python's <code>lambda</code> syntax doesn't allow a plain <code>raise</code> statement. If
+you find that pattern hard to read, you can write the same check as a
+normal function instead:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">check_min_order</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>    <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;min_order&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">data</span><span class="p">[</span><span class="s2">&quot;min_order&quot;</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;min_order must be a positive number&quot;</span><span class="p">)</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="k">class</span><span class="w"> </span><span class="nc">Discount</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    <span class="o">...</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>    <span class="n">__validators__</span> <span class="o">=</span> <span class="p">[</span><span class="n">check_min_order</span><span class="p">]</span>
+</code></pre></div>
+<p>Both versions behave identically — use whichever reads more clearly to
+you.</p>
 <hr />
 <h2 id="custom-validators">Custom validators</h2>
-<p>Create your own validator by subclassing <code>ValidationRule</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.fields</span><span class="w"> </span><span class="kn">import</span> <span class="n">ValidationRule</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>
-<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">UKPostcodeValidator</span><span class="p">(</span><span class="n">ValidationRule</span><span class="p">):</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Validates UK postcode format e.g. SW1A 1AA&quot;&quot;&quot;</span>
-<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">re</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">_re</span>
-<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>    <span class="n">PATTERN</span> <span class="o">=</span> <span class="n">_re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
-<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>        <span class="sa">r</span><span class="s1">&#39;^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]</span><span class="si">{2}</span><span class="s1">$&#39;</span><span class="p">,</span>
-<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a>        <span class="n">_re</span><span class="o">.</span><span class="n">IGNORECASE</span>
-<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a>    <span class="p">)</span>
-<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a>
-<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">validate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">field_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a>        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">PATTERN</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)):</span>
-<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
-<a id="__codelineno-12-14" name="__codelineno-12-14" href="#__codelineno-12-14"></a>                <span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field_name</span><span class="si">}</span><span class="s2">&#39; must be a valid UK postcode. &quot;</span>
-<a id="__codelineno-12-15" name="__codelineno-12-15" href="#__codelineno-12-15"></a>                <span class="sa">f</span><span class="s2">&quot;Examples: SW1A 1AA, EC1A 1BB. Got: </span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2">&quot;</span>
-<a id="__codelineno-12-16" name="__codelineno-12-16" href="#__codelineno-12-16"></a>            <span class="p">)</span>
-<a id="__codelineno-12-17" name="__codelineno-12-17" href="#__codelineno-12-17"></a>
-<a id="__codelineno-12-18" name="__codelineno-12-18" href="#__codelineno-12-18"></a>
-<a id="__codelineno-12-19" name="__codelineno-12-19" href="#__codelineno-12-19"></a><span class="k">class</span><span class="w"> </span><span class="nc">CreditCardValidator</span><span class="p">(</span><span class="n">ValidationRule</span><span class="p">):</span>
-<a id="__codelineno-12-20" name="__codelineno-12-20" href="#__codelineno-12-20"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Luhn algorithm check for credit card numbers&quot;&quot;&quot;</span>
-<a id="__codelineno-12-21" name="__codelineno-12-21" href="#__codelineno-12-21"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">validate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">field_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-<a id="__codelineno-12-22" name="__codelineno-12-22" href="#__codelineno-12-22"></a>        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-12-23" name="__codelineno-12-23" href="#__codelineno-12-23"></a>            <span class="k">return</span>
-<a id="__codelineno-12-24" name="__codelineno-12-24" href="#__codelineno-12-24"></a>        <span class="n">digits</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;-&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
-<a id="__codelineno-12-25" name="__codelineno-12-25" href="#__codelineno-12-25"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">digits</span><span class="o">.</span><span class="n">isdigit</span><span class="p">()</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">digits</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">13</span><span class="p">:</span>
-<a id="__codelineno-12-26" name="__codelineno-12-26" href="#__codelineno-12-26"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field_name</span><span class="si">}</span><span class="s2">&#39; is not a valid card number.&quot;</span><span class="p">)</span>
-<a id="__codelineno-12-27" name="__codelineno-12-27" href="#__codelineno-12-27"></a>        <span class="n">total</span> <span class="o">=</span> <span class="mi">0</span>
-<a id="__codelineno-12-28" name="__codelineno-12-28" href="#__codelineno-12-28"></a>        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">reversed</span><span class="p">(</span><span class="n">digits</span><span class="p">)):</span>
-<a id="__codelineno-12-29" name="__codelineno-12-29" href="#__codelineno-12-29"></a>            <span class="n">n</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
-<a id="__codelineno-12-30" name="__codelineno-12-30" href="#__codelineno-12-30"></a>            <span class="k">if</span> <span class="n">i</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-<a id="__codelineno-12-31" name="__codelineno-12-31" href="#__codelineno-12-31"></a>                <span class="n">n</span> <span class="o">*=</span> <span class="mi">2</span>
-<a id="__codelineno-12-32" name="__codelineno-12-32" href="#__codelineno-12-32"></a>                <span class="k">if</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">9</span><span class="p">:</span>
-<a id="__codelineno-12-33" name="__codelineno-12-33" href="#__codelineno-12-33"></a>                    <span class="n">n</span> <span class="o">-=</span> <span class="mi">9</span>
-<a id="__codelineno-12-34" name="__codelineno-12-34" href="#__codelineno-12-34"></a>            <span class="n">total</span> <span class="o">+=</span> <span class="n">n</span>
-<a id="__codelineno-12-35" name="__codelineno-12-35" href="#__codelineno-12-35"></a>        <span class="k">if</span> <span class="n">total</span> <span class="o">%</span> <span class="mi">10</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
-<a id="__codelineno-12-36" name="__codelineno-12-36" href="#__codelineno-12-36"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field_name</span><span class="si">}</span><span class="s2">&#39; failed Luhn check.&quot;</span><span class="p">)</span>
-<a id="__codelineno-12-37" name="__codelineno-12-37" href="#__codelineno-12-37"></a>
-<a id="__codelineno-12-38" name="__codelineno-12-38" href="#__codelineno-12-38"></a>
-<a id="__codelineno-12-39" name="__codelineno-12-39" href="#__codelineno-12-39"></a><span class="k">class</span><span class="w"> </span><span class="nc">Address</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
-<a id="__codelineno-12-40" name="__codelineno-12-40" href="#__codelineno-12-40"></a>    <span class="n">__tablename__</span> <span class="o">=</span> <span class="s2">&quot;addresses&quot;</span>
-<a id="__codelineno-12-41" name="__codelineno-12-41" href="#__codelineno-12-41"></a>    <span class="nb">id</span>       <span class="o">=</span> <span class="n">IntField</span><span class="p">(</span><span class="n">primary_key</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-<a id="__codelineno-12-42" name="__codelineno-12-42" href="#__codelineno-12-42"></a>    <span class="n">postcode</span> <span class="o">=</span> <span class="n">StrField</span><span class="p">(</span><span class="n">max_length</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">nullable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
-<a id="__codelineno-12-43" name="__codelineno-12-43" href="#__codelineno-12-43"></a>                        <span class="n">validators</span><span class="o">=</span><span class="p">[</span><span class="n">UKPostcodeValidator</span><span class="p">()])</span>
-<a id="__codelineno-12-44" name="__codelineno-12-44" href="#__codelineno-12-44"></a>
-<a id="__codelineno-12-45" name="__codelineno-12-45" href="#__codelineno-12-45"></a><span class="n">Address</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">postcode</span><span class="o">=</span><span class="s2">&quot;SW1A 1AA&quot;</span><span class="p">)</span>   <span class="c1"># OK</span>
-<a id="__codelineno-12-46" name="__codelineno-12-46" href="#__codelineno-12-46"></a><span class="n">Address</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">postcode</span><span class="o">=</span><span class="s2">&quot;EC1A1BB&quot;</span><span class="p">)</span>    <span class="c1"># OK — space optional</span>
-<a id="__codelineno-12-47" name="__codelineno-12-47" href="#__codelineno-12-47"></a>
-<a id="__codelineno-12-48" name="__codelineno-12-48" href="#__codelineno-12-48"></a><span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-12-49" name="__codelineno-12-49" href="#__codelineno-12-49"></a>    <span class="n">Address</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">postcode</span><span class="o">=</span><span class="s2">&quot;12345&quot;</span><span class="p">)</span>  <span class="c1"># US zip — not valid UK</span>
-<a id="__codelineno-12-50" name="__codelineno-12-50" href="#__codelineno-12-50"></a><span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-<a id="__codelineno-12-51" name="__codelineno-12-51" href="#__codelineno-12-51"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+<p>If none of the built-in validators fit what you need, write your own by
+subclassing <code>ValidationRule</code> and implementing a <code>validate()</code> method. It
+receives the value being saved and the name of the field, and should
+raise a <code>ValueError</code> if the value is invalid (returning normally — i.e.
+not raising anything — means the value passed).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm.fields</span><span class="w"> </span><span class="kn">import</span> <span class="n">ValidationRule</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="k">class</span><span class="w"> </span><span class="nc">UKPostcodeValidator</span><span class="p">(</span><span class="n">ValidationRule</span><span class="p">):</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Validates UK postcode format e.g. SW1A 1AA&quot;&quot;&quot;</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>    <span class="kn">import</span><span class="w"> </span><span class="nn">re</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">_re</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>    <span class="n">PATTERN</span> <span class="o">=</span> <span class="n">_re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>        <span class="sa">r</span><span class="s1">&#39;^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]</span><span class="si">{2}</span><span class="s1">$&#39;</span><span class="p">,</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a>        <span class="n">_re</span><span class="o">.</span><span class="n">IGNORECASE</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>    <span class="p">)</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a>
+<a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">validate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">field_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-13-12" name="__codelineno-13-12" href="#__codelineno-13-12"></a>        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">PATTERN</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)):</span>
+<a id="__codelineno-13-13" name="__codelineno-13-13" href="#__codelineno-13-13"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+<a id="__codelineno-13-14" name="__codelineno-13-14" href="#__codelineno-13-14"></a>                <span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field_name</span><span class="si">}</span><span class="s2">&#39; must be a valid UK postcode. &quot;</span>
+<a id="__codelineno-13-15" name="__codelineno-13-15" href="#__codelineno-13-15"></a>                <span class="sa">f</span><span class="s2">&quot;Examples: SW1A 1AA, EC1A 1BB. Got: </span><span class="si">{</span><span class="n">value</span><span class="si">!r}</span><span class="s2">&quot;</span>
+<a id="__codelineno-13-16" name="__codelineno-13-16" href="#__codelineno-13-16"></a>            <span class="p">)</span>
+<a id="__codelineno-13-17" name="__codelineno-13-17" href="#__codelineno-13-17"></a>
+<a id="__codelineno-13-18" name="__codelineno-13-18" href="#__codelineno-13-18"></a>
+<a id="__codelineno-13-19" name="__codelineno-13-19" href="#__codelineno-13-19"></a><span class="k">class</span><span class="w"> </span><span class="nc">CreditCardValidator</span><span class="p">(</span><span class="n">ValidationRule</span><span class="p">):</span>
+<a id="__codelineno-13-20" name="__codelineno-13-20" href="#__codelineno-13-20"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Luhn algorithm check for credit card numbers&quot;&quot;&quot;</span>
+<a id="__codelineno-13-21" name="__codelineno-13-21" href="#__codelineno-13-21"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">validate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">field_name</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-13-22" name="__codelineno-13-22" href="#__codelineno-13-22"></a>        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-13-23" name="__codelineno-13-23" href="#__codelineno-13-23"></a>            <span class="k">return</span>
+<a id="__codelineno-13-24" name="__codelineno-13-24" href="#__codelineno-13-24"></a>        <span class="n">digits</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;-&quot;</span><span class="p">,</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+<a id="__codelineno-13-25" name="__codelineno-13-25" href="#__codelineno-13-25"></a>        <span class="k">if</span> <span class="ow">not</span> <span class="n">digits</span><span class="o">.</span><span class="n">isdigit</span><span class="p">()</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">digits</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">13</span><span class="p">:</span>
+<a id="__codelineno-13-26" name="__codelineno-13-26" href="#__codelineno-13-26"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field_name</span><span class="si">}</span><span class="s2">&#39; is not a valid card number.&quot;</span><span class="p">)</span>
+<a id="__codelineno-13-27" name="__codelineno-13-27" href="#__codelineno-13-27"></a>        <span class="n">total</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-13-28" name="__codelineno-13-28" href="#__codelineno-13-28"></a>        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="nb">reversed</span><span class="p">(</span><span class="n">digits</span><span class="p">)):</span>
+<a id="__codelineno-13-29" name="__codelineno-13-29" href="#__codelineno-13-29"></a>            <span class="n">n</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+<a id="__codelineno-13-30" name="__codelineno-13-30" href="#__codelineno-13-30"></a>            <span class="k">if</span> <span class="n">i</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+<a id="__codelineno-13-31" name="__codelineno-13-31" href="#__codelineno-13-31"></a>                <span class="n">n</span> <span class="o">*=</span> <span class="mi">2</span>
+<a id="__codelineno-13-32" name="__codelineno-13-32" href="#__codelineno-13-32"></a>                <span class="k">if</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">9</span><span class="p">:</span>
+<a id="__codelineno-13-33" name="__codelineno-13-33" href="#__codelineno-13-33"></a>                    <span class="n">n</span> <span class="o">-=</span> <span class="mi">9</span>
+<a id="__codelineno-13-34" name="__codelineno-13-34" href="#__codelineno-13-34"></a>            <span class="n">total</span> <span class="o">+=</span> <span class="n">n</span>
+<a id="__codelineno-13-35" name="__codelineno-13-35" href="#__codelineno-13-35"></a>        <span class="k">if</span> <span class="n">total</span> <span class="o">%</span> <span class="mi">10</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+<a id="__codelineno-13-36" name="__codelineno-13-36" href="#__codelineno-13-36"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Field &#39;</span><span class="si">{</span><span class="n">field_name</span><span class="si">}</span><span class="s2">&#39; failed Luhn check.&quot;</span><span class="p">)</span>
+<a id="__codelineno-13-37" name="__codelineno-13-37" href="#__codelineno-13-37"></a>
+<a id="__codelineno-13-38" name="__codelineno-13-38" href="#__codelineno-13-38"></a>
+<a id="__codelineno-13-39" name="__codelineno-13-39" href="#__codelineno-13-39"></a><span class="k">class</span><span class="w"> </span><span class="nc">Address</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<a id="__codelineno-13-40" name="__codelineno-13-40" href="#__codelineno-13-40"></a>    <span class="n">__tablename__</span> <span class="o">=</span> <span class="s2">&quot;addresses&quot;</span>
+<a id="__codelineno-13-41" name="__codelineno-13-41" href="#__codelineno-13-41"></a>    <span class="nb">id</span>       <span class="o">=</span> <span class="n">IntField</span><span class="p">(</span><span class="n">primary_key</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-13-42" name="__codelineno-13-42" href="#__codelineno-13-42"></a>    <span class="n">postcode</span> <span class="o">=</span> <span class="n">StrField</span><span class="p">(</span><span class="n">max_length</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">nullable</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-13-43" name="__codelineno-13-43" href="#__codelineno-13-43"></a>                        <span class="n">validators</span><span class="o">=</span><span class="p">[</span><span class="n">UKPostcodeValidator</span><span class="p">()])</span>
+<a id="__codelineno-13-44" name="__codelineno-13-44" href="#__codelineno-13-44"></a>
+<a id="__codelineno-13-45" name="__codelineno-13-45" href="#__codelineno-13-45"></a><span class="n">Address</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">postcode</span><span class="o">=</span><span class="s2">&quot;SW1A 1AA&quot;</span><span class="p">)</span>   <span class="c1"># OK</span>
+<a id="__codelineno-13-46" name="__codelineno-13-46" href="#__codelineno-13-46"></a><span class="n">Address</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">postcode</span><span class="o">=</span><span class="s2">&quot;EC1A1BB&quot;</span><span class="p">)</span>    <span class="c1"># OK — space optional</span>
+<a id="__codelineno-13-47" name="__codelineno-13-47" href="#__codelineno-13-47"></a>
+<a id="__codelineno-13-48" name="__codelineno-13-48" href="#__codelineno-13-48"></a><span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-13-49" name="__codelineno-13-49" href="#__codelineno-13-49"></a>    <span class="n">Address</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">postcode</span><span class="o">=</span><span class="s2">&quot;12345&quot;</span><span class="p">)</span>  <span class="c1"># US zip — not valid UK</span>
+<a id="__codelineno-13-50" name="__codelineno-13-50" href="#__codelineno-13-50"></a><span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<a id="__codelineno-13-51" name="__codelineno-13-51" href="#__codelineno-13-51"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
 </code></pre></div>
+<p>The <code>CreditCardValidator</code> example above shows that a custom validator
+isn't limited to a regex check — it's plain Python, so it can run any
+logic you want (here, the Luhn algorithm, a simple checksum formula
+used to catch typos in card numbers) before deciding whether to raise
+an error.</p>
 <hr />
 <h2 id="validator-reference">Validator reference</h2>
 <table>
@@ -1893,40 +2034,43 @@ Use <code>EnumField</code> when you want DB-level enforcement too.</p>
 <tr>
 <td><code>EmailValidator()</code></td>
 <td>no args</td>
-<td>RFC email format</td>
+<td>Looks like a valid email address</td>
 </tr>
 <tr>
 <td><code>UrlValidator()</code></td>
 <td>no args</td>
-<td>http/https URL</td>
+<td>Starts with <code>http://</code> or <code>https://</code></td>
 </tr>
 <tr>
 <td><code>RegexValidator(pattern, message=None)</code></td>
 <td>pattern str</td>
-<td>custom regex</td>
+<td>Matches a custom regex pattern</td>
 </tr>
 <tr>
 <td><code>RangeValidator(min_val=None, max_val=None)</code></td>
 <td>numeric bounds</td>
-<td>min ≤ value ≤ max</td>
+<td><code>min_val &lt;= value &lt;= max_val</code></td>
 </tr>
 <tr>
 <td><code>MinLengthValidator(min_length)</code></td>
 <td>int</td>
-<td>len(value) ≥ min</td>
+<td><code>len(value) &gt;= min_length</code></td>
 </tr>
 <tr>
 <td><code>ChoiceValidator(choices)</code></td>
 <td>list</td>
-<td>value in choices</td>
+<td>Value is in the <code>choices</code> list</td>
 </tr>
 <tr>
 <td><code>ValidationRule</code> (subclass)</td>
 <td>custom</td>
-<td>anything</td>
+<td>Anything you write yourself</td>
 </tr>
 </tbody>
 </table>
+<p>All validators skip their check when the value is <code>None</code> — so a
+<code>nullable=True</code> field with no value provided always passes, regardless
+of which validators are attached.</p>
 
 
 

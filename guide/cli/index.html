@@ -708,6 +708,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../db_migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../bulk_ops/" class="md-nav__link">
         
   
@@ -880,10 +908,87 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#commands" class="md-nav__link">
+  <a href="#version" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Commands
+        version
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inspect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        inspect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#migrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        migrate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        generate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pool
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#migrate-db" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        migrate-db
       
     </span>
   </a>
@@ -1242,10 +1347,87 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#commands" class="md-nav__link">
+  <a href="#version" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Commands
+        version
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        tables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inspect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        inspect
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#migrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        migrate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        generate
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        pool
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#migrate-db" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        migrate-db
       
     </span>
   </a>
@@ -1273,33 +1455,113 @@
 
 
 <h1 id="cli">CLI</h1>
-<h2 id="commands">Commands</h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Show version</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>mydborm<span class="w"> </span>version
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Test connectivity</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>mydborm<span class="w"> </span>ping<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--host<span class="w"> </span><span class="m">127</span>.0.0.1<span class="w"> </span>--port<span class="w"> </span><span class="m">3306</span><span class="w"> </span>--password<span class="w"> </span>root
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># List tables</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>mydborm<span class="w"> </span>tables<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root
-<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
-<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="c1"># Inspect schema</span>
-<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>mydborm<span class="w"> </span>inspect<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root
-<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
-<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="c1"># Migration status</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>mydborm<span class="w"> </span>migrate<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root<span class="w"> </span>--status
-<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>
-<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="c1"># Apply migration</span>
-<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>mydborm<span class="w"> </span>migrate<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">                </span>--model<span class="w"> </span>myapp.models.User
-<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>
-<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="c1"># Generate migration file</span>
-<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>mydborm<span class="w"> </span>generate<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root<span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a><span class="w">                 </span>--model<span class="w"> </span>myapp.models.User<span class="w"> </span>--output<span class="w"> </span>migrations/
-<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>
-<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="c1"># Connection pool status</span>
-<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>mydborm<span class="w"> </span>pool<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root
+<p>Everything covered elsewhere in these docs is Python code you write inside
+your application. The <code>mydborm</code> <strong>command-line tool</strong> is different — it's
+a set of commands you run directly from your terminal, useful for checking
+things or running one-off tasks (does my connection work? what tables exist?
+let me apply this migration) without writing a throwaway Python script
+every time.</p>
+<p>It's an optional extra, so install it with:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>mydborm<span class="o">[</span>cli<span class="o">]</span>
 </code></pre></div>
+<p>That gives you a <code>mydborm</code> command with eight subcommands, covered below.
+Every command that talks to a database accepts the same family of
+connection options — <code>--dialect</code>, <code>--host</code>, <code>--port</code>, <code>--user</code>,
+<code>--password</code>, <code>--database</code> — so you can point any of them at MySQL,
+YugabyteDB, or PostgreSQL. Run <code>mydborm &lt;command&gt; --help</code> at any time to
+see a command's full option list and defaults.</p>
+<h2 id="version">version</h2>
+<p>Prints the installed mydborm version, the author, and which databases it
+supports. No database connection needed — useful for sanity-checking what's
+installed, especially when reporting a bug or checking you're on the
+version you think you are:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>mydborm<span class="w"> </span>version
+</code></pre></div>
+<h2 id="ping">ping</h2>
+<p>Tests whether your connection settings actually work — it tries to connect
+with the credentials you give it and, if successful, prints back the
+server version, database name, and connected user. This is the first
+command to reach for when something isn't working: it tells you whether
+the problem is your connection details or something further down in your
+application code.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>mydborm<span class="w"> </span>ping<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--host<span class="w"> </span><span class="m">127</span>.0.0.1<span class="w"> </span>--port<span class="w"> </span><span class="m">3306</span><span class="w"> </span>--password<span class="w"> </span>root
+</code></pre></div>
+<p>If the connection fails, it prints the error and exits with a non-zero
+status code (handy if you're scripting a health check around it).</p>
+<h2 id="tables">tables</h2>
+<p>Lists every table that exists in the connected database — a quick way to
+confirm you're pointed at the database you think you are, or to see what's
+already there before you start adding models:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>mydborm<span class="w"> </span>tables<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root
+</code></pre></div>
+<h2 id="inspect">inspect</h2>
+<p>Goes one level deeper than <code>tables</code> — for every table in the database, it
+prints the full column list: name, type, whether it's nullable, key
+information, and default value. Useful when you want to see the database's
+own idea of a table's structure, for example to compare it against what
+your model class defines:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>mydborm<span class="w"> </span>inspect<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root
+</code></pre></div>
+<h2 id="migrate">migrate</h2>
+<p>Applies or inspects <a href="../migrations/">migrations</a> — the process of keeping a
+database table's structure in sync with a Python model. Used without
+<code>--model</code>, add <code>--status</code> to see a history of migrations already applied:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>mydborm<span class="w"> </span>migrate<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root<span class="w"> </span>--status
+</code></pre></div>
+<p>Pass <code>--model</code> with the dotted Python import path to a model class to
+compare that model against the live table and apply whatever's needed
+(creating the table, or adding/dropping columns):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>mydborm<span class="w"> </span>migrate<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">                </span>--model<span class="w"> </span>myapp.models.User
+</code></pre></div>
+<p>Add <code>--rollback</code> alongside <code>--model</code> to undo a migration — keep in mind
+this <strong>drops the table and all of its data</strong>, so only do this when you're
+sure the data is disposable (see <a href="../migrations/#rollback">Migrations</a> for
+details).</p>
+<h2 id="generate">generate</h2>
+<p>Like <code>migrate --model</code>, but instead of applying changes immediately, it
+writes the SQL to a numbered file in a <code>migrations/</code> directory — so you (or
+a teammate) can review the SQL before it touches a real database, and so
+the change is tracked in version control:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>mydborm<span class="w"> </span>generate<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">                 </span>--model<span class="w"> </span>myapp.models.User<span class="w"> </span>--output<span class="w"> </span>migrations/
+</code></pre></div>
+<p>Add <code>--apply</code> to also run the generated SQL immediately, instead of just
+writing the file:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>mydborm<span class="w"> </span>generate<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">                 </span>--model<span class="w"> </span>myapp.models.User<span class="w"> </span>--apply
+</code></pre></div>
+<p>Add <code>--list</code> instead of <code>--model</code> to see migration files that already
+exist in the output directory.</p>
+<h2 id="pool">pool</h2>
+<p>Shows the status of mydborm's <a href="../installation/">connection pool</a> for the
+given database — how many connections are configured, and whether the
+database is currently reachable. Useful for confirming pool settings took
+effect, or as a deeper-than-<code>ping</code> health check:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>mydborm<span class="w"> </span>pool<span class="w"> </span>--dialect<span class="w"> </span>mysql<span class="w"> </span>--database<span class="w"> </span>mydb<span class="w"> </span>--password<span class="w"> </span>root
+</code></pre></div>
+<p>You can also pass <code>--size</code> and <code>--overflow</code> to see what status looks like
+under a particular pool configuration.</p>
+<h2 id="migrate-db">migrate-db</h2>
+<p>This is the odd one out — instead of keeping one database's schema in sync
+with a model, <code>migrate-db</code> copies tables and data <strong>from one database to
+another</strong>, including across different database engines (for example, MySQL
+to YugabyteDB). It's a separate feature from everything else on this page;
+see <a href="../db_migration/">Database Migration</a> for the full explanation. The
+short version: you give it source and target connection details, and it
+copies the data over in batches.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>mydborm<span class="w"> </span>migrate-db<span class="w"> </span>--source-dialect<span class="w"> </span>mysql<span class="w"> </span>--source-password<span class="w"> </span>root<span class="w"> </span>--source-db<span class="w"> </span>shop<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">                    </span>--target-dialect<span class="w"> </span>yugabyte<span class="w"> </span>--target-password<span class="w"> </span>yugabyte<span class="w"> </span>--target-db<span class="w"> </span>shop
+</code></pre></div>
+<p>Add <code>--dry-run</code> to preview what would be migrated (table names, row counts)
+without writing anything to the target database — useful for sanity-checking
+before running the real thing:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>mydborm<span class="w"> </span>migrate-db<span class="w"> </span>--source-dialect<span class="w"> </span>mysql<span class="w"> </span>--source-password<span class="w"> </span>root<span class="w"> </span>--source-db<span class="w"> </span>shop<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">                    </span>--target-dialect<span class="w"> </span>yugabyte<span class="w"> </span>--target-password<span class="w"> </span>yugabyte<span class="w"> </span>--target-db<span class="w"> </span>shop<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">                    </span>--tables<span class="w"> </span>users,orders<span class="w"> </span>--dry-run
+</code></pre></div>
+<p><code>--tables</code> restricts the migration to specific, comma-separated tables
+instead of copying every table in the source database.</p>
 
 
 

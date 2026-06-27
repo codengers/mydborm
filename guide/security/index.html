@@ -708,6 +708,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../db_migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Database Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../bulk_ops/" class="md-nav__link">
         
   
@@ -835,16 +863,27 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#passwordfield-bcrypt-hashing" class="md-nav__link">
+  <a href="#passwordfield-for-things-you-only-ever-verify" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PasswordField — bcrypt hashing
+        PasswordField — for things you only ever verify
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="PasswordField — bcrypt hashing">
+    <nav class="md-nav" aria-label="PasswordField — for things you only ever verify">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-not-just-store-the-password-as-text" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why not just store the password as text?
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#define-the-field" class="md-nav__link">
@@ -891,10 +930,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#hash-password-manually" class="md-nav__link">
+  <a href="#hash-a-password-manually" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Hash password manually
+        Hash a password manually
       
     </span>
   </a>
@@ -929,15 +968,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#encryptedfield-aes-encryption" class="md-nav__link">
+  <a href="#encryptedfield-for-things-you-need-to-read-back-later" class="md-nav__link">
     <span class="md-ellipsis">
       
-        EncryptedField — AES encryption
+        EncryptedField — for things you need to read back later
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="EncryptedField — AES encryption">
+    <nav class="md-nav" aria-label="EncryptedField — for things you need to read back later">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -996,10 +1035,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#how-fernet-encryption-works" class="md-nav__link">
+  <a href="#how-the-encryption-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How Fernet encryption works
+        How the encryption works
       
     </span>
   </a>
@@ -1530,16 +1569,27 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#passwordfield-bcrypt-hashing" class="md-nav__link">
+  <a href="#passwordfield-for-things-you-only-ever-verify" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PasswordField — bcrypt hashing
+        PasswordField — for things you only ever verify
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="PasswordField — bcrypt hashing">
+    <nav class="md-nav" aria-label="PasswordField — for things you only ever verify">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-not-just-store-the-password-as-text" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why not just store the password as text?
+      
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#define-the-field" class="md-nav__link">
@@ -1586,10 +1636,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#hash-password-manually" class="md-nav__link">
+  <a href="#hash-a-password-manually" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Hash password manually
+        Hash a password manually
       
     </span>
   </a>
@@ -1624,15 +1674,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#encryptedfield-aes-encryption" class="md-nav__link">
+  <a href="#encryptedfield-for-things-you-need-to-read-back-later" class="md-nav__link">
     <span class="md-ellipsis">
       
-        EncryptedField — AES encryption
+        EncryptedField — for things you need to read back later
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="EncryptedField — AES encryption">
+    <nav class="md-nav" aria-label="EncryptedField — for things you need to read back later">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1691,10 +1741,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#how-fernet-encryption-works" class="md-nav__link">
+  <a href="#how-the-encryption-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How Fernet encryption works
+        How the encryption works
       
     </span>
   </a>
@@ -1827,20 +1877,63 @@
 
 
 <h1 id="security">Security</h1>
-<p>mydborm provides two security-focused field types:</p>
+<p>Some columns shouldn't be stored as plain, readable text — passwords,
+API keys, tokens, social security numbers. If your database is ever
+leaked, copied, or just looked at by someone who shouldn't have access,
+plain-text sensitive data is the difference between "no big deal" and
+"every user needs to change their password right now."</p>
+<p>mydborm gives you two field types for this, and picking the right one
+matters more than it might seem at first:</p>
 <ul>
-<li><strong>PasswordField</strong> — one-way bcrypt hashing for user passwords</li>
-<li><strong>EncryptedField</strong> — two-way AES encryption for sensitive data</li>
+<li><strong><code>PasswordField</code></strong> — scrambles the value in a way that <strong>cannot be
+  undone</strong>. You can check whether a guess is correct, but you (or
+  anyone, including someone who steals your database) can never
+  recover the original password from what's stored. This is called
+  <strong>one-way hashing</strong>.</li>
+<li><strong><code>EncryptedField</code></strong> — scrambles the value in a way that <strong>can be
+  undone</strong>, but only by someone who has the secret key. This is called
+  <strong>two-way encryption</strong>.</li>
 </ul>
+<p>That distinction — "can never get it back" vs. "can get it back if you
+have the key" — is the most important thing to understand on this
+page, so it's worth repeating: use <code>PasswordField</code> for things you only
+ever need to <em>check</em> (does this password match?), and use
+<code>EncryptedField</code> for things you need to <em>read back later</em> (what is this
+user's API key, so I can call a third-party service with it?).</p>
 <hr />
 <h2 id="installation">Installation</h2>
+<p>Both field types need extra libraries that aren't installed with
+mydborm by default, since not every project needs them:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>mydborm<span class="o">[</span>security<span class="o">]</span>
 </code></pre></div>
-<p>This installs <code>bcrypt</code> and <code>cryptography</code> as extra dependencies.</p>
+<p>This installs two packages:</p>
+<ul>
+<li><strong>bcrypt</strong> — the library that does the one-way hashing for
+  <code>PasswordField</code>.</li>
+<li><strong>cryptography</strong> — the library that does the two-way encryption for
+  <code>EncryptedField</code>.</li>
+</ul>
 <hr />
-<h2 id="passwordfield-bcrypt-hashing">PasswordField — bcrypt hashing</h2>
-<p>Use <code>PasswordField</code> for <strong>user passwords</strong>. Passwords are hashed using bcrypt
-and <strong>cannot be decrypted</strong> — you can only verify them.</p>
+<h2 id="passwordfield-for-things-you-only-ever-verify">PasswordField — for things you only ever verify</h2>
+<p>Use <code>PasswordField</code> for <strong>user login passwords</strong> (or anything else
+where all you ever need to know is "does this match what I have on
+file?" — PINs, recovery codes, etc).</p>
+<h3 id="why-not-just-store-the-password-as-text">Why not just store the password as text?</h3>
+<p>If you store a password as plain text and your database is ever
+exposed, every user's actual password is exposed too — and since
+people reuse passwords across sites, that's bad even for accounts
+outside your app. The standard fix is to never store the actual
+password at all. Instead, you run it through a one-way function (a
+<strong>hash</strong>) that scrambles it into something unrecognizable, and you
+store <em>that</em> instead. "One-way" means there's no function that takes
+the scrambled output and produces the original password back — the
+scrambling is designed to be effectively irreversible, even for you,
+even with the database in hand.</p>
+<p><code>PasswordField</code> does this scrambling using an algorithm called
+<strong>bcrypt</strong>, which is specifically designed for passwords (it's
+deliberately slow, which makes it expensive for an attacker to guess
+millions of passwords per second if they ever get a copy of your
+database).</p>
 <h3 id="define-the-field">Define the field</h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">IntField</span><span class="p">,</span> <span class="n">StrField</span><span class="p">,</span> <span class="n">BoolField</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">PasswordField</span>
@@ -1855,6 +1948,8 @@ and <strong>cannot be decrypted</strong> — you can only verify them.</p>
 <a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="n">User</span><span class="o">.</span><span class="n">create_table</span><span class="p">()</span>
 </code></pre></div>
+<p>A <code>PasswordField</code> is declared just like any other field — there's
+nothing extra to configure to get the basic behavior.</p>
 <p><strong>SQL generated:</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1">-- MySQL</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">password</span><span class="w"> </span><span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">255</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span>
@@ -1862,8 +1957,14 @@ and <strong>cannot be decrypted</strong> — you can only verify them.</p>
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1">-- YugabyteDB</span>
 <a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">password</span><span class="w"> </span><span class="nb">VARCHAR</span><span class="p">(</span><span class="mi">255</span><span class="p">)</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span>
 </code></pre></div>
+<p>The column is just a <code>VARCHAR(255)</code> under the hood — to the database,
+it looks like any other text column. The "hashing" part is something
+mydborm does in Python before the value ever reaches the database; the
+database itself has no idea it's storing a password.</p>
 <h3 id="create-a-user">Create a user</h3>
-<p>The password is <strong>automatically hashed</strong> on <code>create()</code> — you never store plain text:</p>
+<p>The password is <strong>automatically hashed</strong> the moment you call
+<code>create()</code> — you never have to call a hashing function yourself, and
+the plain text never gets written to the database:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">uid</span> <span class="o">=</span> <span class="n">User</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">username</span> <span class="o">=</span> <span class="s2">&quot;alice&quot;</span><span class="p">,</span>
 <a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">email</span>    <span class="o">=</span> <span class="s2">&quot;alice@example.com&quot;</span><span class="p">,</span>
@@ -1875,7 +1976,17 @@ and <strong>cannot be decrypted</strong> — you can only verify them.</p>
 <a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="c1"># $2b$12$K9L7bPzQx5uF3Yw8RtJm8...   ← bcrypt hash stored</span>
 <a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="nb">print</span><span class="p">(</span><span class="n">user</span><span class="p">[</span><span class="s2">&quot;password&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;mysecretpassword&quot;</span><span class="p">)</span>   <span class="c1"># False — never plain text</span>
 </code></pre></div>
+<p>That long string starting with <code>$2b$12$...</code> is the bcrypt hash. It's
+not meant to be read by a human — it's the scrambled result, plus a bit
+of bookkeeping bcrypt needs (explained below) to be able to check a
+password against it later.</p>
 <h3 id="verify-a-password-login">Verify a password (login)</h3>
+<p>Since you can't "unscramble" a hash back into the original password,
+checking a login attempt works differently than you might expect:
+instead of decrypting the stored value and comparing it to what the
+user typed, you hash what the user typed using the <em>same</em> method and
+compare the two hashes. <code>PasswordField.verify()</code> does exactly that for
+you:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">login</span><span class="p">(</span><span class="n">username</span><span class="p">,</span> <span class="n">plain_password</span><span class="p">):</span>
 <a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="n">user</span> <span class="o">=</span> <span class="n">User</span><span class="o">.</span><span class="n">query</span><span class="p">()</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="s2">&quot;username&quot;</span><span class="p">,</span> <span class="n">username</span><span class="p">)</span><span class="o">.</span><span class="n">first</span><span class="p">()</span>
 <a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">user</span><span class="p">:</span>
@@ -1892,7 +2003,14 @@ and <strong>cannot be decrypted</strong> — you can only verify them.</p>
 <a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="n">ok</span><span class="p">,</span> <span class="n">msg</span> <span class="o">=</span> <span class="n">login</span><span class="p">(</span><span class="s2">&quot;alice&quot;</span><span class="p">,</span> <span class="s2">&quot;wrongpassword&quot;</span><span class="p">)</span>
 <a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="nb">print</span><span class="p">(</span><span class="n">ok</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>   <span class="c1"># False Wrong password</span>
 </code></pre></div>
+<p><code>PasswordField.verify(plain_password, hashed_password)</code> returns <code>True</code>
+or <code>False</code> — it never reveals or reconstructs the original password,
+it just tells you whether the one typed in matches the one that was
+originally hashed.</p>
 <h3 id="change-password">Change password</h3>
+<p>The same auto-hashing happens on <code>update()</code>, so changing a password
+looks just like setting one for the first time — you still verify the
+<em>old</em> password first to make sure the request is legitimate:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">change_password</span><span class="p">(</span><span class="n">user_id</span><span class="p">,</span> <span class="n">old_password</span><span class="p">,</span> <span class="n">new_password</span><span class="p">):</span>
 <a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="n">user</span> <span class="o">=</span> <span class="n">User</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">user_id</span><span class="p">)</span>
 <a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">user</span><span class="p">:</span>
@@ -1907,7 +2025,11 @@ and <strong>cannot be decrypted</strong> — you can only verify them.</p>
 <a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>
 <a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="n">change_password</span><span class="p">(</span><span class="n">uid</span><span class="p">,</span> <span class="s2">&quot;mysecretpassword&quot;</span><span class="p">,</span> <span class="s2">&quot;newstrongerpassword!&quot;</span><span class="p">)</span>
 </code></pre></div>
-<h3 id="hash-password-manually">Hash password manually</h3>
+<h3 id="hash-a-password-manually">Hash a password manually</h3>
+<p>Most of the time <code>create()</code> and <code>update()</code> handle hashing for you
+automatically. But if you ever need the hash itself — for a script, a
+test, or a one-off migration — you can call the hashing function
+directly without going through a model at all:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Hash without storing</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">hashed</span> <span class="o">=</span> <span class="n">PasswordField</span><span class="o">.</span><span class="n">hash</span><span class="p">(</span><span class="s2">&quot;mysecret&quot;</span><span class="p">,</span> <span class="n">rounds</span><span class="o">=</span><span class="mi">12</span><span class="p">)</span>
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">hashed</span><span class="p">)</span>   <span class="c1"># $2b$12$...</span>
@@ -1917,7 +2039,13 @@ and <strong>cannot be decrypted</strong> — you can only verify them.</p>
 <a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="nb">print</span><span class="p">(</span><span class="n">ok</span><span class="p">)</span>   <span class="c1"># True</span>
 </code></pre></div>
 <h3 id="configure-work-factor-rounds">Configure work factor (rounds)</h3>
-<p>Higher rounds = slower hashing = more secure. Default is 12.</p>
+<p>Bcrypt has a "work factor" called <strong>rounds</strong> that controls how many
+times the scrambling step repeats internally. More rounds means the
+hash takes longer to compute — which sounds like a downside, but it's
+actually the whole point: it also makes it proportionally slower for
+an attacker trying to guess passwords by brute force. The default is
+12 rounds, which is a good balance of "fast enough for a real login
+form" and "slow enough to discourage guessing."</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">User</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
 <a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="n">__tablename__</span> <span class="o">=</span> <span class="s2">&quot;users&quot;</span>
 <a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>    <span class="nb">id</span>       <span class="o">=</span> <span class="n">IntField</span><span class="p">(</span><span class="n">primary_key</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -1957,23 +2085,56 @@ and <strong>cannot be decrypted</strong> — you can only verify them.</p>
 </tr>
 </tbody>
 </table>
+<p>Use a low value like <code>rounds=4</code> only in your test suite, where you're
+hashing passwords over and over and don't want the test run to slow
+down — never in production.</p>
 <h3 id="how-bcrypt-works">How bcrypt works</h3>
+<p>A couple of things that often confuse people new to password hashing:</p>
 <ul>
-<li>Each hash includes a <strong>random salt</strong> — same password hashes differently each time</li>
-<li>The <strong>rounds</strong> parameter controls how many iterations are run</li>
-<li>Stored hash includes the rounds and salt — no extra columns needed</li>
-<li><strong>Cannot be reversed</strong> — only verification is possible</li>
+<li>Each hash includes a <strong>random salt</strong> — a random chunk of data mixed
+  in before scrambling, so the <em>same</em> password hashed twice produces
+  two <em>different</em>-looking hashes. This stops an attacker from spotting
+  "these two users have the same password" just by comparing the
+  stored hashes.</li>
+<li>The salt and the rounds value are both saved as part of the stored
+  hash string itself — that's why you don't need a separate column for
+  them; the one <code>VARCHAR(255)</code> has everything <code>verify()</code> needs.</li>
+<li>There is no "unhash" function. The only thing you can ever do with a
+  stored hash is check whether a candidate password produces a
+  matching hash — you can never work backwards to the original
+  password.</li>
 </ul>
 <hr />
-<h2 id="encryptedfield-aes-encryption">EncryptedField — AES encryption</h2>
-<p>Use <code>EncryptedField</code> for <strong>data you need to retrieve</strong> — API keys, tokens,
-SSNs, credit card numbers, personal data.</p>
+<h2 id="encryptedfield-for-things-you-need-to-read-back-later">EncryptedField — for things you need to read back later</h2>
+<p>Use <code>EncryptedField</code> for data where, unlike a password, you genuinely
+need the original value back at some point — API keys you'll send to a
+third-party service, OAuth tokens, social security numbers, credit card
+numbers, or any other personal data your app needs to display or reuse
+later.</p>
+<p>This uses <strong>encryption</strong> rather than hashing. The difference: encryption
+is two-way by design. Anyone holding the correct <strong>secret key</strong> (a
+piece of data that acts like a password for the encryption itself) can
+turn the scrambled value back into the original. That's exactly what
+you want for an API key — you need to get the real key back out so you
+can actually use it to call an API — but it's the opposite of what you
+want for a login password, where letting anyone reverse it would defeat
+the purpose.</p>
+<p>Because encryption is reversible, the entire security of the system
+comes down to one thing: keeping the secret key safe.</p>
 <div class="admonition warning">
 <p class="admonition-title">Keep your key safe</p>
-<p>If you lose your encryption key, <strong>all encrypted data is unrecoverable</strong>.
-Store keys in environment variables or a secrets manager — never in code.</p>
+<p>If you lose your encryption key, <strong>all encrypted data is
+unrecoverable</strong> — there is no backdoor or recovery option, by
+design. And if someone else gets a copy of your key (and your
+database), they can decrypt everything just as easily as you can.
+Store keys in environment variables or a secrets manager — never
+written directly in your source code.</p>
 </div>
 <h3 id="generate-a-key">Generate a key</h3>
+<p>Before you can encrypt anything, you need a secret key. mydborm gives
+you a helper to generate a properly random one — don't try to make one
+up yourself (e.g. typing a memorable phrase), since that's much easier
+for an attacker to guess than a truly random key:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">EncryptedField</span>
 <a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
 <a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="c1"># Generate once — store securely</span>
@@ -1984,6 +2145,12 @@ Store keys in environment variables or a secrets manager — never in code.</p>
 <a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="c1"># Store in .env file:</span>
 <a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a><span class="c1"># ENCRYPTION_KEY=dBF_6PJ5hRkzGjQ8N9TmY2w4sIoXcVeA3nKuLbEZWp0=</span>
 </code></pre></div>
+<p>Generate this key once for your application and keep using the same
+one — if you generate a new key later without migrating your existing
+encrypted data first, you'll permanently lose access to anything
+encrypted with the old key. (See <a href="#rotate-encryption-keys-periodically">Rotate encryption keys
+periodically</a> below for how to
+switch keys safely.)</p>
 <h3 id="define-the-model">Define the model</h3>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">IntField</span><span class="p">,</span> <span class="n">StrField</span>
@@ -2001,6 +2168,12 @@ Store keys in environment variables or a secrets manager — never in code.</p>
 <a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a>
 <a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="n">APICredential</span><span class="o">.</span><span class="n">create_table</span><span class="p">()</span>
 </code></pre></div>
+<p>Each <code>EncryptedField</code> needs the secret key passed in as <code>secret_key=</code>
+— that's how mydborm knows what to encrypt and decrypt with for that
+particular field. Reading the key from an environment variable (as
+shown above with <code>os.environ["ENCRYPTION_KEY"]</code>) rather than typing it
+directly into your source file means the key never ends up committed
+to version control by accident.</p>
 <p><strong>SQL generated:</strong></p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1">-- MySQL</span>
 <a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="n">api_key</span><span class="w">    </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span>
@@ -2012,8 +2185,14 @@ Store keys in environment variables or a secrets manager — never in code.</p>
 <a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="n">api_secret</span><span class="w"> </span><span class="nb">TEXT</span>
 <a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="n">webhook</span><span class="w">    </span><span class="nb">TEXT</span>
 </code></pre></div>
+<p>Like <code>PasswordField</code>, the database column itself is just plain text
+(<code>TEXT</code> this time, since encrypted values are longer than a bcrypt
+hash) — the encryption and decryption happen entirely in Python,
+outside the database.</p>
 <h3 id="store-credentials">Store credentials</h3>
-<p>Values are <strong>automatically encrypted</strong> on <code>create()</code>:</p>
+<p>Values are <strong>automatically encrypted</strong> the moment you call <code>create()</code>
+— you pass in the real value, and mydborm encrypts it before it's ever
+written to the database:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">cid</span> <span class="o">=</span> <span class="n">APICredential</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
 <a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>    <span class="n">service</span>    <span class="o">=</span> <span class="s2">&quot;stripe&quot;</span><span class="p">,</span>
 <a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>    <span class="n">api_key</span>    <span class="o">=</span> <span class="s2">&quot;sk_live_51abc123xyz&quot;</span><span class="p">,</span>          <span class="c1"># plain text in</span>
@@ -2027,7 +2206,16 @@ Store keys in environment variables or a secrets manager — never in code.</p>
 <a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>
 <a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="nb">print</span><span class="p">(</span><span class="n">cred</span><span class="p">[</span><span class="s2">&quot;api_key&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;sk_live_51abc123xyz&quot;</span><span class="p">)</span>   <span class="c1"># False — encrypted in DB</span>
 </code></pre></div>
+<p>The scrambled text you see (starting with <code>gAAAAA...</code>) is called
+<strong>ciphertext</strong> — the encrypted form of your original value, sometimes
+called the <strong>plaintext</strong>. Unlike a password hash, ciphertext isn't a
+dead end: anyone with the right key can turn it back into the original
+value, which is the whole point of choosing encryption here instead of
+hashing.</p>
 <h3 id="decrypt-values">Decrypt values</h3>
+<p>Because encryption is reversible, mydborm gives you three equivalent
+ways to get the original value back, depending on what's most
+convenient in your code:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># Method 1 — static method</span>
 <a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">plain</span> <span class="o">=</span> <span class="n">EncryptedField</span><span class="o">.</span><span class="n">decrypt</span><span class="p">(</span><span class="n">cred</span><span class="p">[</span><span class="s2">&quot;api_key&quot;</span><span class="p">],</span> <span class="n">secret_key</span><span class="o">=</span><span class="n">KEY</span><span class="p">)</span>
 <a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">plain</span><span class="p">)</span>   <span class="c1"># sk_live_51abc123xyz</span>
@@ -2041,7 +2229,13 @@ Store keys in environment variables or a secrets manager — never in code.</p>
 <a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="n">cipher</span> <span class="o">=</span> <span class="n">EncryptedField</span><span class="o">.</span><span class="n">encrypt</span><span class="p">(</span><span class="s2">&quot;my_secret_value&quot;</span><span class="p">,</span> <span class="n">secret_key</span><span class="o">=</span><span class="n">KEY</span><span class="p">)</span>
 <a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="n">plain</span>  <span class="o">=</span> <span class="n">EncryptedField</span><span class="o">.</span><span class="n">decrypt</span><span class="p">(</span><span class="n">cipher</span><span class="p">,</span> <span class="n">secret_key</span><span class="o">=</span><span class="n">KEY</span><span class="p">)</span>
 </code></pre></div>
+<p>In every case, you need to supply the same <code>secret_key</code> that was used
+to encrypt the value in the first place — decrypting with the wrong key
+will fail rather than silently produce garbage.</p>
 <h3 id="full-workflow-example">Full workflow example</h3>
+<p>Here's a more complete, realistic example — storing OAuth tokens after
+a user connects a third-party account, then retrieving and decrypting
+the access token later to actually call that provider's API:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 <a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mydborm</span><span class="w"> </span><span class="kn">import</span> <span class="n">db</span><span class="p">,</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">IntField</span><span class="p">,</span> <span class="n">StrField</span><span class="p">,</span> <span class="n">EncryptedField</span>
 <a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>
@@ -2086,16 +2280,33 @@ Store keys in environment variables or a secrets manager — never in code.</p>
 <a id="__codelineno-13-42" name="__codelineno-13-42" href="#__codelineno-13-42"></a><span class="n">access</span> <span class="o">=</span> <span class="n">get_access_token</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;google&quot;</span><span class="p">)</span>
 <a id="__codelineno-13-43" name="__codelineno-13-43" href="#__codelineno-13-43"></a><span class="nb">print</span><span class="p">(</span><span class="n">access</span><span class="p">)</span>   <span class="c1"># ya29.abc...</span>
 </code></pre></div>
-<h3 id="how-fernet-encryption-works">How Fernet encryption works</h3>
+<h3 id="how-the-encryption-works">How the encryption works</h3>
+<p><code>EncryptedField</code> uses a scheme called <strong>Fernet</strong>, which bundles
+together a few standard cryptography building blocks so you don't have
+to assemble them yourself:</p>
 <ul>
-<li>Uses <strong>Fernet</strong> — a safe, authenticated encryption scheme</li>
-<li>Each encryption uses a <strong>random IV</strong> — same value encrypts differently each time</li>
-<li>Includes <strong>HMAC authentication</strong> — tampered ciphertext raises an error</li>
-<li>Ciphertext is base64 — safe to store in TEXT columns</li>
+<li>The underlying scrambling algorithm is <strong>AES</strong> (a widely used,
+  well-trusted encryption standard) — this is the part that actually
+  transforms your plaintext into ciphertext and back.</li>
+<li>Like bcrypt, each encryption uses fresh random data mixed in (an
+  <strong>IV</strong>, short for "initialization vector") — so encrypting the exact
+  same value twice produces two different-looking ciphertexts.</li>
+<li>Fernet also attaches an <strong>authentication tag</strong> (using something
+  called HMAC) to every ciphertext. This means that if someone tampers
+  with the stored ciphertext — even changing a single character —
+  decrypting it raises an error instead of silently returning corrupted
+  or wrong data.</li>
+<li>The final ciphertext is encoded as base64 (safe, plain ASCII text),
+  so it stores cleanly in a normal <code>TEXT</code> column without any special
+  handling.</li>
 </ul>
 <hr />
 <h2 id="security-best-practices">Security best practices</h2>
 <h3 id="use-environment-variables-for-keys">Use environment variables for keys</h3>
+<p>Whether it's your database password or your encryption key, the rule
+is the same: secrets belong in environment variables (or a dedicated
+secrets manager for production systems), never typed directly into a
+<code>.py</code> file that gets committed to git.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># .env file (never commit this!)</span>
 <a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="c1"># ENCRYPTION_KEY=your-key-here</span>
 <a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="c1"># DB_PASSWORD=your-db-password</span>
@@ -2107,6 +2318,11 @@ Store keys in environment variables or a secrets manager — never in code.</p>
 <a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="n">KEY</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;ENCRYPTION_KEY&quot;</span><span class="p">]</span>
 </code></pre></div>
 <h3 id="never-log-plain-passwords-or-decrypted-values">Never log plain passwords or decrypted values</h3>
+<p>It's easy to accidentally leak a secret through a <code>print()</code> or a log
+line you added for debugging and forgot to remove. Logs are often kept
+around for a long time and read by more people than your database is —
+so anything written to a log should already be safe to show to anyone
+who can read your logs.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># BAD</span>
 <a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;User logged in with password: </span><span class="si">{</span><span class="n">plain_password</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 <a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;API key: </span><span class="si">{</span><span class="n">decrypted_key</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -2116,6 +2332,13 @@ Store keys in environment variables or a secrets manager — never in code.</p>
 <a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;API key for service </span><span class="si">{</span><span class="n">service</span><span class="si">}</span><span class="s2"> retrieved (length=</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">decrypted_key</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="rotate-encryption-keys-periodically">Rotate encryption keys periodically</h3>
+<p>"Rotating" a key means switching to a new one — good practice to limit
+how much damage a leaked key can do, since an old key that's no longer
+in use can't decrypt anything new. Because <code>EncryptedField</code> is
+reversible, you can do this safely: decrypt everything with the old
+key, then re-encrypt it with the new one, without losing any data
+(something that's simply not possible with one-way <code>PasswordField</code>
+hashes).</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">rotate_encryption_key</span><span class="p">(</span><span class="n">old_key</span><span class="p">,</span> <span class="n">new_key</span><span class="p">):</span>
 <a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Re-encrypt all credentials with a new key.&quot;&quot;&quot;</span>
 <a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>    <span class="n">creds</span> <span class="o">=</span> <span class="n">APICredential</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
@@ -2136,6 +2359,9 @@ Store keys in environment variables or a secrets manager — never in code.</p>
 <a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Re-encrypted </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">creds</span><span class="p">)</span><span class="si">}</span><span class="s2"> credentials&quot;</span><span class="p">)</span>
 </code></pre></div>
 <h3 id="passwordfield-vs-encryptedfield-choosing-the-right-one">PasswordField vs EncryptedField — choosing the right one</h3>
+<p>The core question to ask yourself: <strong>will I ever need to see the
+original value again?</strong> If no, hash it with <code>PasswordField</code>. If yes,
+encrypt it with <code>EncryptedField</code>.</p>
 <table>
 <thead>
 <tr>
@@ -2148,7 +2374,7 @@ Store keys in environment variables or a secrets manager — never in code.</p>
 <tr>
 <td>User login passwords</td>
 <td><code>PasswordField</code></td>
-<td>One-way — even you can't read it</td>
+<td>One-way — even you can't read it back</td>
 </tr>
 <tr>
 <td>API keys / tokens</td>

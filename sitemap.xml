@@ -2,98 +2,102 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://codengers.github.io/mydborm/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/benchmarks/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/changelog/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/api/db/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/api/exceptions/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/api/fields/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/api/migrations/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/api/model/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/api/session/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/async/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/bulk_ops/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/cli/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
+    </url>
+    <url>
+         <loc>https://codengers.github.io/mydborm/guide/db_migration/</loc>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/exceptions/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/fields/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/installation/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/migrations/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/models/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/query_builder/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/quickstart/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/relationships/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/security/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/session/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/transactions/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
     <url>
          <loc>https://codengers.github.io/mydborm/guide/validators/</loc>
-         <lastmod>2026-06-20</lastmod>
+         <lastmod>2026-06-27</lastmod>
     </url>
 </urlset>
