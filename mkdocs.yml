@@ -49,6 +49,7 @@ nav:
     - Transactions: guide/transactions.md
     - Session: guide/session.md
     - Migrations: guide/migrations.md
+    - Database Migration: guide/db_migration.md
     - Bulk Operations: guide/bulk_ops.md
     - Validators: guide/validators.md
     - Security: guide/security.md

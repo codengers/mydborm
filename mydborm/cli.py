@@ -582,6 +582,168 @@ def generate(
         raise typer.Exit(code=1)
 
 # ------------------------------------------------------------------ #
+#  migrate-db                                                          #
+# ------------------------------------------------------------------ #
+
+@cli.command("migrate-db")
+def migrate_db(
+    source_dialect:  str  = typer.Option(...,         "--source-dialect",  help="mysql, yugabyte, or postgres"),
+    source_host:     str  = typer.Option("127.0.0.1",  "--source-host"),
+    source_port:     int  = typer.Option(3306,         "--source-port"),
+    source_user:     str  = typer.Option("root",       "--source-user"),
+    source_password: str  = typer.Option(...,          "--source-password", hide_input=True),
+    source_db:       str  = typer.Option(...,          "--source-db"),
+    target_dialect:  str  = typer.Option(...,          "--target-dialect",  help="mysql, yugabyte, or postgres"),
+    target_host:     str  = typer.Option("127.0.0.1",  "--target-host"),
+    target_port:     int  = typer.Option(5433,         "--target-port"),
+    target_user:     str  = typer.Option("yugabyte",   "--target-user"),
+    target_password: str  = typer.Option(...,          "--target-password", hide_input=True),
+    target_db:       str  = typer.Option(...,          "--target-db"),
+    tables:          str  = typer.Option(None,         "--tables",     help="Comma-separated table names (default: all tables)"),
+    chunk_size:      int  = typer.Option(500,          "--chunk-size", help="Rows per INSERT batch"),
+    overwrite:       bool = typer.Option(False,        "--overwrite",  help="Replace tables that already have data in the target"),
+    dry_run:         bool = typer.Option(False,         "--dry-run",   help="Preview the migration without writing anything"),
+):
+    """
+    Migrate all (or selected) tables from one database to another.
+
+    Examples:
+        mydborm migrate-db --source-dialect mysql --source-password root --source-db shop \\
+                            --target-dialect yugabyte --target-password yugabyte --target-db shop
+
+        mydborm migrate-db ... --tables users,orders --dry-run
+    """
+    from mydborm.migrate import MigrationEngine, SchemaExtractor, DataTransfer
+
+    table_list = [t.strip() for t in tables.split(",") if t.strip()] if tables else None
+
+    engine = MigrationEngine(
+        source={
+            "dialect": source_dialect, "host": source_host, "port": source_port,
+            "user": source_user, "password": source_password, "database": source_db,
+        },
+        target={
+            "dialect": target_dialect, "host": target_host, "port": target_port,
+            "user": target_user, "password": target_password, "database": target_db,
+        },
+    )
+
+    if dry_run:
+        try:
+            preview = engine.dry_run(tables=table_list)
+        except Exception as e:
+            console.print(f"\n[bold red]✘ Error:[/bold red] {e}\n")
+            raise typer.Exit(code=1)
+
+        if not preview["tables"]:
+            console.print("\n[yellow]No tables found to migrate.[/yellow]\n")
+            return
+
+        t = Table(
+            title=f"Dry run: {source_db} ({source_dialect}) → {target_db} ({target_dialect})",
+            box=box.ROUNDED, border_style="cyan",
+        )
+        t.add_column("Table",   style="bold white")
+        t.add_column("Rows",    justify="right", style="yellow")
+        t.add_column("Columns", justify="right", style="dim")
+        for row in preview["tables"]:
+            t.add_row(row["table"], f"{row['rows']:,}", str(row["columns"]))
+
+        console.print()
+        console.print(t)
+        console.print(
+            f"\n[dim]{len(preview['tables'])} table(s), "
+            f"{sum(row['rows'] for row in preview['tables']):,} row(s) total.[/dim]"
+        )
+        if preview["warnings"]:
+            console.print("\n[yellow]Warnings:[/yellow]")
+            for w in preview["warnings"]:
+                console.print(f"  [yellow]⚠[/yellow] {w}")
+        console.print()
+        return
+
+    # Resolve the table list and a best-effort row count for the status
+    # table up front. Extraction failures here are per-table and non-fatal
+    # — engine.run() below does its own per-table error handling, so a
+    # single bad table name shouldn't abort the whole migration.
+    try:
+        table_names = (
+            table_list if table_list is not None
+            else SchemaExtractor(engine.source_db).list_tables()
+        )
+    except Exception as e:
+        console.print(f"\n[bold red]✘ Error:[/bold red] {e}\n")
+        raise typer.Exit(code=1)
+
+    if not table_names:
+        console.print("\n[yellow]No tables found to migrate.[/yellow]\n")
+        return
+
+    transfer   = DataTransfer(engine.source_db, engine.target_db)
+    row_totals = {}
+    for name in table_names:
+        try:
+            row_totals[name] = transfer.count_rows(engine.source_db, name)
+        except Exception:
+            row_totals[name] = 0
+
+    console.print(
+        f"\n[cyan]Migrating[/cyan] [bold]{source_db}[/bold] ({source_dialect}) "
+        f"[cyan]→[/cyan] [bold]{target_db}[/bold] ({target_dialect})\n"
+    )
+
+    def on_progress(table_name, done, total):
+        if total and done >= total:
+            console.print(f"  [green]✔[/green] {table_name} — {total:,} row(s) transferred")
+
+    try:
+        result = engine.run(
+            tables=table_list, chunk_size=chunk_size,
+            overwrite=overwrite, on_progress=on_progress, verify=True,
+        )
+    except Exception as e:
+        console.print(f"\n[bold red]✘ Migration failed:[/bold red] {e}\n")
+        raise typer.Exit(code=1)
+
+    failed_names  = {e.split(":", 1)[0].strip() for e in result.errors}
+    skipped_names = {
+        w.split("'")[1] for w in result.warnings
+        if w.startswith("Skipped '")
+    }
+
+    t = Table(box=box.SIMPLE_HEAVY, border_style="cyan")
+    t.add_column("Table",  style="bold white")
+    t.add_column("Rows",   justify="right", style="yellow")
+    t.add_column("Status", style="white")
+
+    done_count = 0
+    for name in table_names:
+        rows = row_totals.get(name, 0)
+        if name in failed_names:
+            status_text = "[red]✘ Failed[/red]"
+        elif name in skipped_names:
+            status_text = "[yellow]⚠ Skipped[/yellow]"
+        else:
+            status_text = "[green]✔ Done[/green]"
+            done_count += 1
+        t.add_row(name, f"{rows:,}", status_text)
+
+    t.add_row(
+        "[bold]Total[/bold]",
+        f"[bold]{sum(row_totals.values()):,}[/bold]",
+        f"[bold]{done_count}/{len(table_names)} done[/bold]",
+    )
+
+    console.print()
+    console.print(t)
+    console.print()
+    console.print(result.summary())
+    console.print()
+
+    if not result.is_success():
+        raise typer.Exit(code=1)
+
+# ------------------------------------------------------------------ #
 #  Entry point                                                         #
 # ------------------------------------------------------------------ #
 
