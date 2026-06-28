@@ -12,7 +12,7 @@
 
 from mydborm import (
     db, BaseModel,
-    IntField, StrField, BoolField, FloatField, DateTimeField
+    IntField, StrField, BoolField, FloatField
 )
 from mydborm.migrations import migrate, migration_status
 
@@ -62,6 +62,12 @@ print("\n── Migrations ─────────────────�
 for model in [Author, Book]:
     result = migrate(model, description=f"Create {model._table} table")
     print(f"  {result['message']}")
+    # migrate() skips re-creating a table once its migration is marked
+    # applied, even if the table itself was dropped some other way
+    # since then. create_table() is a no-op CREATE TABLE IF NOT EXISTS,
+    # so this keeps the demo runnable no matter how many times — or in
+    # what order — it's been run before.
+    model.create_table()
 
 print("\n── Migration status ────────────────────────────────────")
 for m in migration_status():
