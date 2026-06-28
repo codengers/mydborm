@@ -227,3 +227,49 @@ def test_basemodel_repr():
     assert "Product" in r or "products" in r
 
 
+# ------------------------------------------------------------------ #
+#  JSONField round trip — dict/list survive create() -> get()         #
+# ------------------------------------------------------------------ #
+
+from mydborm.fields import JSONField
+
+
+class JsonRecord(BaseModel):
+    __tablename__ = "json_records_test"
+    id   = IntField(primary_key=True)
+    data = JSONField(nullable=True)
+
+
+@pytest.fixture
+def json_table():
+    JsonRecord.create_table()
+    with db.connect() as conn:
+        conn.cursor().execute("DELETE FROM json_records_test")
+    yield
+    JsonRecord.drop_table()
+
+
+def test_json_field_dict_round_trip(json_table):
+    rid = JsonRecord.create(data={"a": 1, "b": [2, 3], "c": "text"})
+    row = JsonRecord.get(id=rid)
+    assert row["data"] == {"a": 1, "b": [2, 3], "c": "text"}
+
+
+def test_json_field_list_round_trip(json_table):
+    rid = JsonRecord.create(data=[1, "two", {"three": 3}])
+    row = JsonRecord.get(id=rid)
+    assert row["data"] == [1, "two", {"three": 3}]
+
+
+def test_json_field_null_round_trip(json_table):
+    rid = JsonRecord.create(data=None)
+    row = JsonRecord.get(id=rid)
+    assert row["data"] is None
+
+
+def test_json_field_round_trip_via_query_builder(json_table):
+    JsonRecord.create(data={"nested": {"value": 42}})
+    row = JsonRecord.query().first()
+    assert row["data"] == {"nested": {"value": 42}}
+
+

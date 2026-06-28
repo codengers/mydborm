@@ -16,8 +16,9 @@ model.py — BaseModel with metaclass for mydborm.
 Provides declarative model definition + CRUD operations.
 """
 
+import json
 from typing import Optional
-from .fields import Field
+from .fields import Field, JSONField
 from .db import db
 
 # ------------------------------------------------------------------ #
@@ -1282,14 +1283,29 @@ class BaseModel(metaclass=ModelMeta):
     @classmethod
     def _fetch(cls, sql: str, params: list = None) -> list:
         """Internal: run a SELECT and return list of ModelInstance."""
+        json_fields = [
+            fname for fname, field in cls._fields.items()
+            if isinstance(field, JSONField)
+        ]
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql, params or [])
             columns = [desc[0] for desc in cur.description]
-            return [
-                ModelInstance(cls, dict(zip(columns, row)))
-                for row in cur.fetchall()
-            ]
+            results = []
+            for row in cur.fetchall():
+                data = dict(zip(columns, row))
+                # JSONField stores JSON as text — parse it back into a
+                # dict/list here. psycopg2 already auto-parses JSONB
+                # columns on its own, so only strings need decoding.
+                for fname in json_fields:
+                    value = data.get(fname)
+                    if isinstance(value, str):
+                        try:
+                            data[fname] = json.loads(value)
+                        except ValueError:
+                            pass
+                results.append(ModelInstance(cls, data))
+            return results
 
     @classmethod
     def all(cls) -> list:

@@ -20,6 +20,8 @@ any order.
 | [`session_example.py`](session_example.py) | The identity map (same row → same Python object) and automatic change tracking |
 | [`async_example.py`](async_example.py) | `AsyncBaseModel` for FastAPI and other asyncio frameworks — requires `pip install mydborm[async]` |
 | [`db_migration_example.py`](db_migration_example.py) | Moving schema + data between two databases with `MigrationEngine`, and building a target table from a model class with `ObjectMigrator` |
+| [`yugabyte_example.py`](yugabyte_example.py) | Running the exact same model code against YugabyteDB instead of MySQL, what the dialect changes for you automatically (JSONB, native `BOOLEAN`, identifier quoting), and the SERIAL-vs-UUID primary key tradeoff on a distributed database |
+| [`data_engineering_example.py`](data_engineering_example.py) | An ETL-flavored pipeline on YugabyteDB — extract/transform/load, idempotent loading with `bulk_upsert()` so re-running a batch never creates duplicates, storing a raw `JSONField` payload alongside typed columns, and a downstream aggregation query |
 
 For the full write-up behind any of these, see the matching page in the
 [Guide](../docs/guide/).

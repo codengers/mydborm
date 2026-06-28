@@ -30,6 +30,7 @@ fields.py — Field definitions for mydborm models.
 Supports MySQL and YugabyteDB (YSQL) column types.
 """
 
+import json
 from datetime import date, datetime
 from typing import Any, Optional
 
@@ -232,8 +233,20 @@ class JSONField(Field):
     JSON column.
     MySQL  → JSON
     YugabyteDB → JSONB
+
+    Accepts a Python dict/list and stores it as JSON text — you don't
+    need to call json.dumps() yourself. Reading it back is handled by
+    BaseModel._fetch(), which parses the stored JSON text back into a
+    dict/list (skipping values the driver already parsed itself, which
+    psycopg2 does automatically for JSONB columns).
     """
     sql_type = "JSON"
+
+    def validate(self, value):
+        value = super().validate(value)
+        if isinstance(value, (dict, list)):
+            return json.dumps(value)
+        return value
 
     def to_sql_def(self, dialect: str = "mysql") -> str:
         original = self.sql_type
