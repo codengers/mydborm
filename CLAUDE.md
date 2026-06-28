@@ -14,7 +14,7 @@
 - **Docs**: https://codengers.github.io/mydborm/
 - **Author**: Atikrant Upadhye — GitHub: codengers
 - **License**: MIT
-- **Current version**: 1.4.0
+- **Current version**: 1.10.1
 - **Python**: 3.9, 3.10, 3.11, 3.12
 - **OS**: Windows 11, VSCode
 
@@ -51,8 +51,9 @@ YugabyteDB (YSQL), and PostgreSQL. It provides:
 - PostgreSQL dialect (in addition to MySQL + YugabyteDB)
 - Async support (aiomysql + aiopg)
 - Connection pooling
-- Rich CLI (7 commands)
-- 893 tests, 93% coverage
+- Database-to-database migration engine (MigrationEngine, ObjectMigrator, TypeMapper)
+- Rich CLI (8 commands)
+- 1094 tests, 96% coverage
 
 ---
 
@@ -67,7 +68,8 @@ mydborm/
 │   ├── model.py               # ModelMeta, BaseModel, QueryBuilder, ModelInstance
 │   ├── bulk.py                # BulkResult, chunked_bulk_*
 │   ├── async_db.py            # AsyncConnectionManager, AsyncBaseModel
-│   ├── migrations.py          # migrate(), generate(), apply_migration_file()
+│   ├── migrations.py          # migrate(), generate(), apply_migration_file() — single-DB schema migrations
+│   ├── migrate.py             # MigrationEngine, ObjectMigrator, TypeMapper — database-to-database migration
 │   ├── exceptions.py          # 24 custom exception types
 │   ├── session.py             # Session, ObjectState, TrackedInstance
 │   ├── mixins.py              # SoftDeleteMixin, AuditMixin, TimestampMixin
@@ -77,11 +79,11 @@ mydborm/
 │       ├── mysql.py           # MySQLDialect
 │       ├── yugabyte.py        # YugabyteDialect
 │       └── postgres.py        # PostgreSQLDialect
-├── tests/                     # 893 tests, 93% coverage
+├── tests/                     # 1094 tests, 96% coverage
 ├── docs/                      # MkDocs documentation
 ├── benchmarks/                # Performance benchmarks
-├── examples/                  # Usage examples
-├── .github/workflows/         # CI/CD (ci.yml + docs.yml)
+├── examples/                  # Runnable usage examples (one script per topic)
+├── .github/workflows/         # CI/CD (ci.yml)
 ├── docker-compose.yml         # MySQL + YugabyteDB + PostgreSQL
 ├── pyproject.toml             # Package config + dependencies
 └── mkdocs.yml                 # Documentation config
@@ -124,7 +126,7 @@ docker compose up -d
 
 ```powershell
 pytest tests/ -q
-# Expected: 893 passed, 4 skipped
+# Expected: 1094 passed, 4 skipped (skips are PostgreSQL-port-unavailable guards)
 ```
 
 ---
@@ -153,12 +155,17 @@ pytest tests/ -k "not async" -q
 | File | Tests for |
 |---|---|
 | `test_connection.py` | db.configure, from_env, pool, transactions |
+| `test_pool.py` | Connection pool sizing, status, ping |
 | `test_fields.py` | Core 10 field types + validation |
 | `test_model.py` | BaseModel, CRUD, ModelInstance |
 | `test_query_builder.py` | WHERE, JOIN, GROUP BY, subquery, aggregates |
+| `test_group_by.py` | group_by/having aggregation paths |
+| `test_raw_sql.py` | where_raw(), or_where_raw() |
 | `test_relationships.py` | has_many, belongs_to, many_to_many |
+| `test_lazy_loading.py` | LazyRelation, eager loading via .include() |
 | `test_bulk.py` | bulk_create, bulk_update, bulk_delete, upsert |
 | `test_chunked_bulk.py` | BulkResult, chunked ops, retry, progress |
+| `test_upsert_joins.py` | bulk_upsert(), join-based queries |
 | `test_transactions.py` | transaction, savepoints, nested, retry |
 | `test_session.py` | Session, identity map, change tracking |
 | `test_validators.py` | All 6 validators + custom validators |
@@ -171,9 +178,10 @@ pytest tests/ -k "not async" -q
 | `test_postgresql.py` | PostgreSQL dialect (skipped if port 5432 unavailable) |
 | `test_yugabyte.py` | YugabyteDB live tests (skipped if port 5433 unavailable) |
 | `test_dialects.py` | MySQL + YugabyteDB + PostgreSQL SQL generation |
-| `test_migrations.py` | migrate(), migration_status(), rollback() |
+| `test_migrations.py` | migrate(), migration_status(), rollback() — single-DB schema migrations |
 | `test_auto_migrations.py` | generate(), apply_migration_file() |
-| `test_cli.py` | All 7 CLI commands |
+| `test_db_migration.py` | MigrationEngine, ObjectMigrator, TypeMapper — database-to-database migration |
+| `test_cli.py` | All 8 CLI commands |
 | `test_async.py` | AsyncBaseModel, AsyncConnectionManager |
 | `test_serialization.py` | to_dict, to_json, from_dict |
 | `test_exceptions.py` | All 24 exception types |
@@ -313,15 +321,10 @@ Declared via `__pk__ = ("col1", "col2")` tuple. `ModelMeta` stores it as
 
 ## Coverage targets
 
-Current: **93%** (893 tests, 220 missing lines)
-
-Remaining gaps:
-- `cli.py` 83% — YugabyteDB ping/tables/inspect paths
-- `async_db.py` 89% — async error paths
-- `mixins.py` 89% — ALTER TABLE paths when column missing
-- `model.py` 92% — relationship + upsert paths
-
-Target: **95%+**
+Current: **96%** (1094 tests). Target of 95%+ already met — when adding new
+code, check `--cov-report=term-missing` for the specific lines your change
+introduces rather than chasing a fixed gap list (the exact missing lines
+shift release to release).
 
 Run coverage check:
 ```powershell
@@ -344,7 +347,7 @@ pytest tests/ --cov=mydborm --cov-report=term-missing -q 2>$null | Select-String
 ### Add a new CLI command
 
 1. Open `mydborm/cli.py`
-2. Add `@app.command()` function
+2. Add `@cli.command()` function (the Typer instance in `cli.py` is named `cli`, not `app`)
 3. Add tests to `tests/test_cli.py` using `CliRunner`
 
 ### Add a new dialect
@@ -377,8 +380,8 @@ the tag push triggers PyPI publish automatically, no manual approval step.
 ```toml
 [project]
 name    = "mydborm"
-version = "1.4.0"
-requires-python = ">=3.9"
+version = "1.10.1"
+requires-python = ">=3.8"
 
 dependencies = [
     "mysql-connector-python>=8.0",
@@ -387,9 +390,10 @@ dependencies = [
 
 [project.optional-dependencies]
 cli      = ["typer>=0.9", "rich>=13.0"]
+ui       = ["streamlit>=1.30"]
 async    = ["aiomysql>=0.3", "aiopg>=1.4"]
 security = ["bcrypt>=4.0", "cryptography>=41.0"]
-dev      = ["pytest>=7", "pytest-cov", "pytest-asyncio>=0.23", ...]
+dev      = ["pytest>=7", "pytest-cov", "pytest-asyncio>=0.23", "ruff", ...]
 ```
 
 ---
