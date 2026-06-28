@@ -121,6 +121,35 @@ def test_json_field_postgres_sql():
     assert "JSONB" in f.to_sql_def("postgres")
 
 
+def test_json_field_validate_serializes_dict():
+    from mydborm import JSONField
+    f = JSONField()
+    f.name = "data"
+    assert f.validate({"a": 1, "b": [2, 3]}) == '{"a": 1, "b": [2, 3]}'
+
+
+def test_json_field_validate_serializes_list():
+    from mydborm import JSONField
+    f = JSONField()
+    f.name = "data"
+    assert f.validate([1, 2, 3]) == "[1, 2, 3]"
+
+
+def test_json_field_validate_passes_through_string():
+    from mydborm import JSONField
+    f = JSONField()
+    f.name = "data"
+    # Already-serialized JSON text is left as-is, not double-encoded.
+    assert f.validate('{"already": "json"}') == '{"already": "json"}'
+
+
+def test_json_field_validate_passes_through_none():
+    from mydborm import JSONField
+    f = JSONField(nullable=True)
+    f.name = "data"
+    assert f.validate(None) is None
+
+
 def test_field_primary_key_sql():
     from mydborm import IntField
     f = IntField(primary_key=True)

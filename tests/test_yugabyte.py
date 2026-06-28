@@ -50,6 +50,12 @@ class YBOrder(BaseModel):
     shipped    = BoolField(default=False)
 
 
+class YBJsonRecord(BaseModel):
+    __tablename__ = "yb_json_records"
+    id   = IntField(primary_key=True)
+    data = JSONField(nullable=True)
+
+
 # ------------------------------------------------------------------ #
 #  Fixtures                                                            #
 # ------------------------------------------------------------------ #
@@ -66,7 +72,9 @@ def setup_yb():
     )
     YBProduct.create_table()
     YBOrder.create_table()
+    YBJsonRecord.create_table()
     yield
+    YBJsonRecord.drop_table()
     YBOrder.drop_table()
     YBProduct.drop_table()
     db.close()
@@ -78,6 +86,7 @@ def clean_tables():
         cur = conn.cursor()
         cur.execute('DELETE FROM "yb_orders"')
         cur.execute('DELETE FROM "yb_products"')
+        cur.execute('DELETE FROM "yb_json_records"')
     yield
 
 
@@ -304,3 +313,25 @@ def test_full_yugabyte_workflow():
 
     YBProduct.delete(id=pid)
     assert YBProduct.count() == 0
+
+
+# ------------------------------------------------------------------ #
+#  JSONField — JSONB round trip                                        #
+# ------------------------------------------------------------------ #
+
+def test_json_field_dict_round_trip():
+    rid = YBJsonRecord.create(data={"a": 1, "b": [2, 3], "c": "text"})
+    row = YBJsonRecord.get(id=rid)
+    assert row["data"] == {"a": 1, "b": [2, 3], "c": "text"}
+
+
+def test_json_field_list_round_trip():
+    rid = YBJsonRecord.create(data=[1, "two", {"three": 3}])
+    row = YBJsonRecord.get(id=rid)
+    assert row["data"] == [1, "two", {"three": 3}]
+
+
+def test_json_field_null_round_trip():
+    rid = YBJsonRecord.create(data=None)
+    row = YBJsonRecord.get(id=rid)
+    assert row["data"] is None
