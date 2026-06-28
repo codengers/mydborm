@@ -173,6 +173,33 @@ def test_password_custom_rounds():
     assert user["pin"].startswith("$2b$04$")
 
 
+def test_needs_rehash_false_when_rounds_match():
+    field = PasswordField(rounds=12)
+    field.name = "password"
+    hashed = field.validate("mysecret")
+    assert field.needs_rehash(hashed) is False
+
+
+def test_needs_rehash_true_when_rounds_differ():
+    old_hash = PasswordField.hash("mysecret", rounds=10)
+    field = PasswordField(rounds=12)
+    field.name = "password"
+    assert field.needs_rehash(old_hash) is True
+
+
+def test_needs_rehash_accepts_bytes():
+    field = PasswordField(rounds=12)
+    field.name = "password"
+    hashed = field.validate("mysecret")
+    assert field.needs_rehash(hashed.encode("utf-8")) is False
+
+
+def test_needs_rehash_true_for_malformed_hash():
+    field = PasswordField(rounds=12)
+    field.name = "password"
+    assert field.needs_rehash("not-a-bcrypt-hash") is True
+
+
 def test_password_none_nullable():
     uid  = SecureUser.create(username="ivan", password="pass", pin=None)
     user = SecureUser.get(id=uid)

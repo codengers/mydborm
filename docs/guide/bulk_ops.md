@@ -275,16 +275,18 @@ result = chunked_bulk_delete(
 print(f"Deleted {result.deleted} records in {result.duration}s")
 ```
 
-> **Heads up:** if you pass `raise_on_error=True` to `chunked_bulk_delete()`
-> and a chunk fails, the exception it raises today is actually
-> `BulkInsertError`, not a delete-specific error — there's no
-> `BulkDeleteError` class in the current version of mydborm. The
-> `BulkResult` returned without `raise_on_error` is unaffected by this and
-> reports `.deleted`/`.failed` correctly either way; it's only the
-> exception type on the `raise_on_error=True` path that's mislabeled. If
-> you're catching exceptions around a chunked delete, catch
-> `BulkInsertError` (or the broader `MydbormError`) rather than assuming a
-> delete-specific type exists.
+If you pass `raise_on_error=True` and a chunk fails, `chunked_bulk_delete()`
+raises `BulkDeleteError`:
+
+```python
+from mydborm import BulkDeleteError
+from mydborm.bulk import chunked_bulk_delete
+
+try:
+    chunked_bulk_delete(Product, old_ids, chunk_size=1000, raise_on_error=True)
+except BulkDeleteError as e:
+    print(f"Bulk delete partially failed: failed={e.failed}")
+```
 
 ---
 

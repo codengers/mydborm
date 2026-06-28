@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from .fields import Field
+from .exceptions import NotConfiguredError, UnsupportedDialectError
 
 
 # ------------------------------------------------------------------ #
@@ -49,7 +50,7 @@ class AsyncConnectionManager:
     async def configure(self, **kwargs):
         """Configure and initialise the connection pool."""
         if "dialect" not in kwargs:
-            raise ValueError("dialect is required: 'mysql' or 'yugabyte'")
+            raise UnsupportedDialectError("dialect is required: 'mysql' or 'yugabyte'")
         self._config = kwargs
         await self._create_pool()
 
@@ -97,9 +98,10 @@ class AsyncConnectionManager:
                     "Run: pip install mydborm[async]"
                 )
         else:
-            raise ValueError(
+            raise UnsupportedDialectError(
                 "Unsupported dialect: " + repr(dialect) +
-                ". Choose 'mysql' or 'yugabyte'."
+                ". Choose 'mysql' or 'yugabyte'.",
+                dialect=dialect,
             )
 
     @property
@@ -120,7 +122,7 @@ class AsyncConnectionManager:
                 await cur.execute("SELECT 1")
         """
         if self._pool is None:
-            raise RuntimeError(
+            raise NotConfiguredError(
                 "Async DB not configured.\n"
                 "Call: await async_db.configure(...) first."
             )

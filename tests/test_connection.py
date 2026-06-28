@@ -41,9 +41,23 @@ def test_missing_dialect_raises():
         db.configure(host="localhost", user="root")
 
 
+def test_missing_dialect_raises_typed_exception():
+    from mydborm.exceptions import UnsupportedDialectError
+    with pytest.raises(UnsupportedDialectError, match="dialect is required"):
+        db.configure(host="localhost", user="root")
+
+
 def test_not_configured_raises():
     db._config = {}
     with pytest.raises(RuntimeError, match="not configured"):
+        with db.connect() as conn:
+            pass
+
+
+def test_not_configured_raises_typed_exception():
+    from mydborm.exceptions import NotConfiguredError
+    db._config = {}
+    with pytest.raises(NotConfiguredError, match="not configured"):
         with db.connect() as conn:
             pass
 
@@ -99,6 +113,17 @@ def test_unsupported_dialect_raises():
         mgr._make_connection()  # lines 179-182
 
 
+def test_unsupported_dialect_raises_typed_exception():
+    from mydborm.db import ConnectionManager
+    from mydborm.exceptions import UnsupportedDialectError
+    mgr = ConnectionManager()
+    mgr._config = {"dialect": "sqlite", "host": "x", "user": "x",
+                   "password": "x", "database": "x"}
+    with pytest.raises(UnsupportedDialectError) as exc_info:
+        mgr._make_connection()
+    assert exc_info.value.dialect == "sqlite"
+
+
 # ------------------------------------------------------------------ #
 #  Not-configured RuntimeErrors (lines 240, 324, 360)                 #
 # ------------------------------------------------------------------ #
@@ -123,6 +148,24 @@ def test_execute_not_configured_raises():
     mgr = ConnectionManager()
     with pytest.raises(RuntimeError, match="not configured"):
         mgr.execute("SELECT 1")  # line 360
+
+
+def test_fetchall_transaction_execute_raise_typed_not_configured():
+    """fetchall/transaction/execute all raise NotConfiguredError specifically,
+    not just a generic RuntimeError, when called before configure()."""
+    from mydborm.db import ConnectionManager
+    from mydborm.exceptions import NotConfiguredError
+    mgr = ConnectionManager()
+
+    with pytest.raises(NotConfiguredError):
+        mgr.fetchall("SELECT 1")
+
+    with pytest.raises(NotConfiguredError):
+        with mgr.transaction():
+            pass
+
+    with pytest.raises(NotConfiguredError):
+        mgr.execute("SELECT 1")
 
 
 # ------------------------------------------------------------------ #

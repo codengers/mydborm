@@ -10,6 +10,7 @@
 from .mysql    import MySQLDialect
 from .yugabyte import YugabyteDialect
 from .postgres import PostgreSQLDialect
+from ..exceptions import UnsupportedDialectError
 
 
 def get_dialect(name: str):
@@ -26,7 +27,8 @@ def get_dialect(name: str):
         name: dialect name string
 
     Raises:
-        ValueError: if dialect name is not recognised
+        UnsupportedDialectError: if dialect name is not recognised
+            (also a ValueError, for backward compatibility)
     """
     dialects = {
         "mysql"      : MySQLDialect,
@@ -35,9 +37,11 @@ def get_dialect(name: str):
         "postgresql" : PostgreSQLDialect,
     }
     if name not in dialects:
-        raise ValueError(
+        raise UnsupportedDialectError(
             f"Unknown dialect: {name!r}. "
-            f"Supported: {list(dialects.keys())}"
+            f"Supported: {list(dialects.keys())}",
+            dialect=name,
+            supported=list(dialects.keys()),
         )
     return dialects[name]
 

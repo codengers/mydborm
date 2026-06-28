@@ -13,7 +13,7 @@
 import time
 import math
 from typing import Callable, Optional
-from .exceptions import BulkInsertError, BulkUpdateError, BulkUpsertError
+from .exceptions import BulkInsertError, BulkUpdateError, BulkUpsertError, BulkDeleteError
 
 
 # ------------------------------------------------------------------ #
@@ -367,7 +367,7 @@ def chunked_bulk_delete(
 
             if raise_on_error:
                 result.finish()
-                raise BulkInsertError(
+                raise BulkDeleteError(
                     f"Chunk {i+1} failed: {e}",
                     inserted = 0,
                     failed   = result.failed,

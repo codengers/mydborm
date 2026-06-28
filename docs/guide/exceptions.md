@@ -21,23 +21,27 @@ This page covers every exception type mydborm defines, what triggers it,
 and what data it carries so you can write a useful error message instead
 of just "something went wrong."
 
-> **A note on accuracy:** a few exception types described in earlier
-> versions of this page — `NotConfiguredError`, `ConnectionError`,
-> `ConnectionTimeoutError`, `QueryError`, `RecordNotFoundError`,
-> `MultipleRecordsError`, `FieldRequiredError`, `FieldTypeError`,
-> `FieldLengthError`, `DeadlockError`, `SavepointError`,
-> `MigrationError` and its subclasses, and `UnsupportedDialectError` — are
-> all defined as classes in `mydborm/exceptions.py` and exported from the
-> package, but as of this version **nothing in mydborm's actual code raises
-> them yet**. The operations that you'd expect to raise them (an unconfigured
-> connection, a bad host, a missing row, a field with the wrong type, a
-> migration failure, an unsupported dialect) currently raise plain Python
-> built-ins instead (`RuntimeError`, `ValueError`, `TypeError`), or simply
-> return `None`. This page documents both: what's wired up today, and what
-> the reserved-but-unused types look like, so you know what to actually
-> write `except` clauses for right now. Each section below is labeled
-> **(active)** or **(reserved, not yet raised)** to make this obvious at a
-> glance.
+> **A note on accuracy:** `NotConfiguredError`, `UnsupportedDialectError`,
+> `SavepointError`, `FieldRequiredError`, `FieldTypeError`, and
+> `FieldLengthError` are now actually raised at their real call sites
+> (they were defined but unused in earlier versions of mydborm). Each of
+> these also still inherits from whatever plain Python built-in
+> (`RuntimeError`, `ValueError`, `TypeError`) it raised before being wired
+> up, so existing `except RuntimeError`/`except ValueError`/`except
+> TypeError` code keeps working unchanged — you only need to catch the
+> specific type if you want more precise handling than the built-in gives
+> you.
+>
+> A few others — `ConnectionError`, `ConnectionTimeoutError`, `QueryError`,
+> `RecordNotFoundError`, `MultipleRecordsError`, `DeadlockError`,
+> `MigrationError` and its subclasses — are still defined and exported but
+> **not yet raised anywhere**. Most of these would require an actual new
+> feature first (e.g. `RecordNotFoundError` needs a `strict=` option on
+> `get()` that doesn't exist yet; `MultipleRecordsError` needs a `get_one()`
+> method that doesn't exist yet), not just a renamed exception, so they're
+> left as future work rather than wired up as a drop-in fix. Each section
+> below is labeled **(active)** or **(reserved, not yet raised)** to make
+> this obvious at a glance.
 
 ---
 
@@ -145,15 +149,15 @@ from mydborm import (
 
 ## Connection-related errors
 
-### Not configured — `RuntimeError` (active) / `NotConfiguredError` (reserved)
+### Not configured — `NotConfiguredError` (active)
 
 If you try to run any database operation before calling `db.configure()`
-or `db.from_env()`, mydborm doesn't know which database to talk to. Today
-that raises a plain `RuntimeError` with a helpful message — it is **not**
-yet `NotConfiguredError`, even though that class exists and is exported:
+or `db.from_env()`, mydborm doesn't know which database to talk to, and
+raises `NotConfiguredError`:
 
 ```python
 from mydborm import db, BaseModel, IntField
+from mydborm import NotConfiguredError
 
 class User(BaseModel):
     __tablename__ = "users"
@@ -162,7 +166,7 @@ class User(BaseModel):
 # WRONG — configure not called yet
 try:
     users = User.all()
-except RuntimeError as e:
+except NotConfiguredError as e:
     print(f"Error: {e}")
     # Fix it:
     db.configure(
@@ -176,9 +180,10 @@ except RuntimeError as e:
     users = User.all()  # now works
 ```
 
-If a future release switches this to `NotConfiguredError`, catching the
-broader `MydbormError` (or both `RuntimeError` and `NotConfiguredError`)
-is the safest way to be ready for that without changing your code twice.
+`NotConfiguredError` also inherits from `RuntimeError` (what it raised
+before this was wired up), so existing `except RuntimeError:` code keeps
+working — you only need to catch `NotConfiguredError` specifically if you
+want to distinguish "not configured" from other runtime errors.
 
 ### Bad host / unreachable server (reserved — `ConnectionError`, `ConnectionTimeoutError`)
 
@@ -229,18 +234,18 @@ A **validation error** happens when the data you're trying to save doesn't
 match the rules you defined on the field — for example a required field
 left empty, or a string field given a value that's too long.
 
-### How validation actually fails today — plain `ValueError` / `TypeError` (active)
+### How validation fails — `FieldRequiredError`, `FieldTypeError`, `FieldLengthError` (active)
 
 Each `Field` (in `mydborm/fields.py`) checks its own value when you call
-`.create()`, `.update()`, or run a custom validator like `EmailValidator`.
-Right now, every one of those checks raises a built-in `ValueError` or
-`TypeError` with a descriptive message — not the typed `ValidationError`,
-`FieldRequiredError`, `FieldTypeError`, or `FieldLengthError` classes you
-might expect from their names (those classes exist and are exported, but
-nothing currently raises them):
+`.create()` or `.update()`. A missing required field raises
+`FieldRequiredError`, a value of the wrong type raises `FieldTypeError`,
+and a string that's too long raises `FieldLengthError` — all three inherit
+from `ValidationError`, which carries `field`, `value`, and `reason`
+attributes:
 
 ```python
 from mydborm import BaseModel, IntField, StrField, FloatField, BoolField
+from mydborm import FieldRequiredError, FieldTypeError, FieldLengthError
 
 class Product(BaseModel):
     __tablename__ = "products"
@@ -252,9 +257,9 @@ class Product(BaseModel):
 # Missing a required field
 try:
     Product.create(name="Laptop", sku=None, price=999.99)
-except ValueError as e:
+except FieldRequiredError as e:
     print(f"Validation failed: {e}")
-    # Field 'sku' cannot be None.
+    # Field 'sku' cannot be None. (field='sku')
 
 # Wrong type
 class Order(BaseModel):
@@ -264,7 +269,7 @@ class Order(BaseModel):
 
 try:
     Order.create(shipped="yes")   # BoolField wants True/False, not a string
-except TypeError as e:
+except FieldTypeError as e:
     print(f"Wrong type: {e}")
 
 # String too long
@@ -275,13 +280,14 @@ class Tag(BaseModel):
 
 try:
     Tag.create(name="this-tag-name-is-way-too-long-for-the-field")
-except ValueError as e:
+except FieldLengthError as e:
     print(f"Too long: {e}")
 ```
 
-Since both `ValueError` and `TypeError` are plain Python built-ins (not
-mydborm-specific), the safest way to catch "any field validation problem"
-today is:
+`FieldRequiredError` also inherits from `ValueError`, `FieldTypeError`
+also inherits from `TypeError`, and `FieldLengthError` also inherits from
+`ValueError` — these are exactly the built-ins each one raised before
+being wired up, so existing code written as:
 
 ```python
 try:
@@ -290,30 +296,26 @@ except (ValueError, TypeError) as e:
     print(f"Could not save product: {e}")
 ```
 
-### The reserved typed versions — `ValidationError`, `FieldRequiredError`, `FieldTypeError`, `FieldLengthError`
+keeps working unchanged. Catch the specific `FieldRequiredError` /
+`FieldTypeError` / `FieldLengthError` (or the shared parent
+`ValidationError`, which catches all three at once) when you want to
+handle each case differently instead of lumping them all into "some kind
+of bad value."
 
-These classes describe what a future, more specific version of this
-validation could look like, and you can already import them:
-
-```python
-from mydborm import ValidationError, FieldRequiredError, FieldTypeError, FieldLengthError
-```
-
-`ValidationError` carries `field`, `value`, and `reason` attributes, and
-`FieldRequiredError`/`FieldTypeError`/`FieldLengthError` all inherit from
-it — so `except ValidationError` would catch all three at once, the same
-way `except MydbormError` catches everything. They're documented here so
-the names and intent are clear, but don't write `except FieldRequiredError`
-expecting it to fire today — catch `ValueError`/`TypeError` instead, as
-shown above.
+A handful of other validation-shaped checks — a custom `RangeValidator`/
+`ChoiceValidator` failing, an `EnumField`/`SetField` value not in its
+allowed choices, a numeric field outside its column's range (e.g.
+`TinyIntField` outside -128..127) — still raise a plain `ValueError`, since
+none of `FieldRequiredError`/`FieldTypeError`/`FieldLengthError` accurately
+describes "value out of range" or "not one of the allowed choices."
 
 ---
 
 ## Bulk operation exceptions (active)
 
 Unlike the sections above, bulk operations' exceptions are fully wired up
-— `BulkInsertError`, `BulkUpdateError`, and `BulkUpsertError` really are
-raised by the code in `mydborm/bulk.py`. See
+— `BulkInsertError`, `BulkUpdateError`, `BulkUpsertError`, and
+`BulkDeleteError` really are raised by the code in `mydborm/bulk.py`. See
 [Bulk Operations](bulk_ops.md) for the full picture of chunking, retries,
 and `BulkResult`; this section focuses on the exceptions themselves.
 
@@ -420,25 +422,50 @@ except BulkUpsertError as e:
 > if you're catching `BulkUpsertError` around a direct `bulk_upsert()`
 > call rather than a chunked one.
 
+### BulkDeleteError
+
+```python
+from mydborm.bulk import chunked_bulk_delete
+from mydborm import BulkDeleteError
+
+ids_to_delete = [101, 102, 103, 999999]  # 999999 doesn't exist
+
+try:
+    chunked_bulk_delete(Product, ids_to_delete, chunk_size=2, raise_on_error=True)
+except BulkDeleteError as e:
+    print(f"Bulk delete partially failed: failed={e.failed}")
+```
+
 ---
 
 ## Transaction-related errors
 
-### RetryExhaustedError (active)
+### RetryExhaustedError — real bug, only partially fixed
 
-This one is real and raised today. `db.transaction_with_retry(...)`
-detects deadlocks by checking the database error message for known
-deadlock signatures, retries with increasing delays between attempts, and
-if it still hasn't succeeded after all retries are used up, raises
-`RetryExhaustedError`:
+`db.transaction_with_retry(...)` is meant to detect deadlocks by checking
+the database error message for known deadlock signatures, retry with
+increasing delays between attempts, and raise `RetryExhaustedError` if it
+still hasn't succeeded after all retries are used up. Until recently,
+`RetryExhaustedError` wasn't even imported into `db.py` — reaching that
+line would have crashed with `NameError: name 'RetryExhaustedError' is not
+defined` instead of raising the intended exception. That import is fixed.
+
+There's a deeper problem underneath, though: `transaction_with_retry` is
+implemented as a single `@contextmanager` generator that tries to retry by
+looping back to a second `yield` inside the same generator. Python's
+`contextlib` only allows a generator-based context manager to yield once —
+when the deadlock-shaped exception comes from **your own code inside the
+`with` block** (the realistic case — a deadlock on one of your own
+`UPDATE`/`INSERT` statements), retrying means throwing that exception back
+into the generator and having it try to yield again, which `contextlib`
+rejects with its own `RuntimeError: generator didn't stop after throw()`.
+You will see *that* error, not a clean retry and not `RetryExhaustedError`:
 
 ```python
-from mydborm import db, RetryExhaustedError
+from mydborm import db
 
-# Use transaction_with_retry — auto-retries on deadlock
 try:
     with db.transaction_with_retry(retries=3, retry_delay=0.5):
-        # Transfer money between accounts
         db.execute(
             "UPDATE accounts SET balance = balance - %s WHERE id = %s",
             [100, 1]
@@ -447,47 +474,85 @@ try:
             "UPDATE accounts SET balance = balance + %s WHERE id = %s",
             [100, 2]
         )
-        # If another transaction causes a deadlock:
-        # → auto-retries with 0.5s, 1s, 2s delays
-        # → raises RetryExhaustedError after 3 attempts
-
-except RetryExhaustedError as e:
-    print(f"Transfer failed after {e.attempts} attempts")
-    print(f"Last error: {e.last_error}")
-    # Alert: manual intervention needed
+except Exception as e:
+    # On a real deadlock here, expect RuntimeError("generator didn't
+    # stop after throw()") from contextlib, not RetryExhaustedError —
+    # the retry loop can't yield a second time from the same generator.
+    print(f"Transfer failed: {type(e).__name__}: {e}")
 ```
 
-```python
-from mydborm import RetryExhaustedError
+`RetryExhaustedError` (and the retry itself) does work correctly for a
+failure that happens while *establishing* the transaction — before
+anything in the `with` block has run — since that doesn't require the
+generator to yield twice. That's a narrower case than "one of my
+statements deadlocked," which is what most people reaching for this
+method actually want to handle. Fixing the common case requires
+rewriting `transaction_with_retry` so it can genuinely re-run the whole
+`with` block on each attempt (for example, as a small wrapper function
+you call with your transaction body as an argument, rather than a
+`with`-statement context manager) — that's a bigger change than a
+one-line fix, and hasn't been done yet.
 
-try:
-    with db.transaction_with_retry(retries=5):
-        db.execute("UPDATE stock SET qty = qty - 1 WHERE product_id = %s", [42])
-except RetryExhaustedError as e:
-    print(f"Gave up after {e.attempts} attempts")
-    print(f"Last error type: {type(e.last_error).__name__}")
-    print(f"Last error: {e.last_error}")
-```
-
-Two details worth knowing: if the error *isn't* a deadlock (it doesn't
-match the known signatures), `transaction_with_retry` doesn't retry at all
-— it raises that original error immediately. And when retries *are*
-exhausted, `e.last_error` holds the original driver exception, not a
-mydborm type — `RetryExhaustedError` is just the wrapper telling you "we
-gave up."
-
-### DeadlockError, SavepointError (reserved, not yet raised)
-
-`DeadlockError` and `SavepointError` are defined as subclasses of
-`TransactionError` and exported from the package, but nothing in the
-current code raises either of them. A deadlock detected outside of
-`transaction_with_retry` propagates as the raw driver exception, and
-`db.savepoint(...)` does the same if the `SAVEPOINT`/`ROLLBACK TO`
-statement fails:
+If you need working deadlock retry today, wrap your own retry loop
+around `db.transaction()` instead:
 
 ```python
 from mydborm import db
+import time
 
+def transfer_with_retry(retries=3, retry_delay=0.5):
+    for attempt in range(retries + 1):
+        try:
+            with db.transaction():
+                db.execute(
+                    "UPDATE accounts SET balance = balance - %s WHERE id = %s",
+                    [100, 1]
+                )
+                db.execute(
+                    "UPDATE accounts SET balance = balance + %s WHERE id = %s",
+                    [100, 2]
+                )
+            return
+        except Exception as e:
+            if "deadlock" not in str(e).lower() or attempt == retries:
+                raise
+            time.sleep(retry_delay * (2 ** attempt))
+```
+
+Two details worth knowing about `transaction_with_retry` even given the
+limitation above: if the error *isn't* a deadlock (it doesn't match the
+known signatures), it doesn't retry at all — it raises that original
+error immediately, same as a plain `db.transaction()` would. And on the
+one path where `RetryExhaustedError` genuinely is reachable (the
+transaction-establishment case described above), `e.last_error` holds the
+original driver exception, not a mydborm type — `RetryExhaustedError` is
+just the wrapper telling you "we gave up."
+
+### SavepointError — calling `db.savepoint()` outside a transaction (active)
+
+`db.savepoint(...)` only makes sense inside an open `db.transaction()` —
+calling it on its own raises `SavepointError`:
+
+```python
+from mydborm import db, SavepointError
+
+try:
+    with db.savepoint("oops"):   # no surrounding db.transaction()
+        pass
+except SavepointError as e:
+    print(f"Can't do that: {e}")
+```
+
+`SavepointError` also inherits from `RuntimeError` (what it raised before
+being wired up), so `except RuntimeError:` still works too.
+
+That's the one case mydborm checks for itself, though. If the
+`SAVEPOINT`/`ROLLBACK TO` statement itself fails at the database level
+(say, the savepoint name collides, or the connection drops mid-savepoint),
+that raw driver exception still propagates unchanged — it is **not**
+wrapped in `SavepointError`:
+
+```python
 try:
     with db.transaction():
         db.execute("INSERT INTO orders (user_id, total) VALUES (%s, %s)", [1, 99.99])
@@ -499,6 +564,13 @@ try:
 except Exception as e:
     print(f"Savepoint or transaction failed: {e}")
 ```
+
+### DeadlockError (reserved, not yet raised)
+
+`DeadlockError` is defined as a subclass of `TransactionError` and
+exported from the package, but nothing in the current code raises it. A
+deadlock detected outside of `transaction_with_retry()` (see above)
+propagates as the raw driver exception instead.
 
 ---
 
@@ -576,21 +648,43 @@ Exception` today and switch to the specific types later.
 
 ---
 
-## UnsupportedDialectError (reserved — actual error is `ValueError`)
+## UnsupportedDialectError (active)
 
-If you pass a `dialect` that mydborm doesn't recognize, `db.configure()`
-raises a plain `ValueError` today, not `UnsupportedDialectError` (which
-exists and is exported, but isn't raised anywhere yet):
+Calling `db.configure()` without a `dialect` at all raises
+`UnsupportedDialectError` immediately:
 
 ```python
-from mydborm import db
+from mydborm import db, UnsupportedDialectError
 
 try:
-    db.configure(dialect="oracle", host="localhost", user="sa", password="pw", database="db")
-except ValueError as e:
-    print(f"Unsupported dialect: {e}")
-    # Choose from: ('mysql', 'yugabyte', 'postgres', 'postgresql')
+    db.configure(host="localhost", user="sa", password="pw", database="db")
+except UnsupportedDialectError as e:
+    print(f"Missing dialect: {e}")
 ```
+
+`configure()` only checks that a `dialect` was *provided*, though — it
+doesn't check whether the value is one it actually understands. That
+check happens later, the first time you actually connect, so an
+unrecognized dialect value raises `UnsupportedDialectError` on
+`db.connect()` (or any operation that connects under the hood), not on
+`configure()` itself:
+
+```python
+db.configure(dialect="oracle", host="localhost", user="sa", password="pw", database="db")
+
+try:
+    with db.connect() as conn:   # the dialect value is checked here
+        pass
+except UnsupportedDialectError as e:
+    print(f"Unsupported dialect: {e}")
+    print(f"You passed: {e.dialect!r}")
+```
+
+`get_dialect()` (used internally for SQL generation, e.g. by the
+[database migration](db_migration.md) tools) raises the same exception
+for an unrecognized name. `UnsupportedDialectError` also inherits from
+`ValueError` (what it raised before being wired up), so
+`except ValueError:` still works everywhere above.
 
 ---
 
@@ -605,11 +699,11 @@ classes yourself (e.g. raising one from your own code that wraps mydborm).
 |---|---|---|
 | `ConnectionError` | `dialect`, `host`, `port`, `message` | No — driver error propagates |
 | `ConnectionTimeoutError` | `timeout`, `dialect`, `host`, `port` | No |
-| `NotConfiguredError` | `message` | No — `RuntimeError` raised instead |
-| `ValidationError` | `field`, `value`, `reason`, `message` | No — `ValueError`/`TypeError` raised instead |
-| `FieldRequiredError` | `field` | No |
-| `FieldTypeError` | `field`, `value` | No |
-| `FieldLengthError` | `field`, `value` | No |
+| `NotConfiguredError` | `message` | **Yes** (also a `RuntimeError`) |
+| `ValidationError` | `field`, `value`, `reason`, `message` | Yes (base class) |
+| `FieldRequiredError` | `field` | **Yes** (also a `ValueError`) |
+| `FieldTypeError` | `field`, `value` | **Yes** (also a `TypeError`) |
+| `FieldLengthError` | `field`, `value` | **Yes** (also a `ValueError`) |
 | `QueryError` | `sql`, `params`, `message` | No |
 | `RecordNotFoundError` | `model`, `filters` | No — `.get()` returns `None` instead |
 | `MultipleRecordsError` | `model`, `count` | No — no `get_one()` exists |
@@ -617,12 +711,13 @@ classes yourself (e.g. raising one from your own code that wraps mydborm).
 | `BulkInsertError` | `inserted`, `failed`, `errors` | **Yes** |
 | `BulkUpdateError` | `inserted`, `failed`, `errors` | **Yes** |
 | `BulkUpsertError` | `inserted`, `failed`, `errors` | **Yes** |
-| `SavepointError` | `savepoint`, `message` | No |
+| `BulkDeleteError` | `inserted`, `failed`, `errors` | **Yes** |
+| `SavepointError` | `savepoint`, `message` | **Yes**, for the "outside a transaction" case (also a `RuntimeError`) |
 | `DeadlockError` | `message` | No |
-| `RetryExhaustedError` | `attempts`, `last_error` | **Yes** |
+| `RetryExhaustedError` | `attempts`, `last_error` | Partially — only for failures while starting the transaction, not for a deadlock on your own statements (see above) |
 | `MigrationError` | `version`, `sql`, `message` | No |
 | `SchemaError` | `table`, `missing_columns`, `extra_columns` | **Yes** |
-| `UnsupportedDialectError` | `dialect`, `supported` | No — `ValueError` raised instead |
+| `UnsupportedDialectError` | `dialect`, `supported` | **Yes** (also a `ValueError`) |
 
 ---
 

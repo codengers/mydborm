@@ -17,6 +17,7 @@ from mydborm.exceptions import (
     QueryError, RecordNotFoundError, MultipleRecordsError,
     ValidationError, FieldRequiredError, FieldTypeError, FieldLengthError,
     BulkOperationError, BulkInsertError, BulkUpdateError, BulkUpsertError,
+    BulkDeleteError,
     TransactionError, SavepointError, DeadlockError, RetryExhaustedError,
     MigrationError, MigrationAlreadyAppliedError, MigrationNotFoundError,
     SchemaError, UnsupportedDialectError,
@@ -162,6 +163,11 @@ def test_bulk_update_error():
 def test_bulk_upsert_error():
     e = BulkUpsertError("upsert failed", inserted=50, failed=2)
     assert issubclass(BulkUpsertError, BulkOperationError)
+
+
+def test_bulk_delete_error():
+    e = BulkDeleteError("delete failed", inserted=0, failed=2)
+    assert issubclass(BulkDeleteError, BulkOperationError)
 
 
 def test_bulk_error_empty_errors_list():
