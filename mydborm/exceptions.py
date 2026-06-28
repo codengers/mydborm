@@ -70,10 +70,13 @@ class ConnectionTimeoutError(ConnectionError):
         self.timeout = timeout
 
 
-class NotConfiguredError(MydbormError):
+class NotConfiguredError(MydbormError, RuntimeError):
     """
     Raised when a database operation is attempted before
     db.configure() or db.from_env() has been called.
+
+    Also a RuntimeError (its original raised type before this exception
+    was wired up), so existing `except RuntimeError` callers keep working.
     """
     pass
 
@@ -144,18 +147,30 @@ class ValidationError(MydbormError):
         self.reason = reason
 
 
-class FieldRequiredError(ValidationError):
-    """Raised when a required field is missing or None."""
+class FieldRequiredError(ValidationError, ValueError):
+    """
+    Raised when a required field is missing or None.
+    Also a ValueError (its original raised type), so existing
+    `except ValueError` callers keep working.
+    """
     pass
 
 
-class FieldTypeError(ValidationError):
-    """Raised when a field value has the wrong type."""
+class FieldTypeError(ValidationError, TypeError):
+    """
+    Raised when a field value has the wrong type.
+    Also a TypeError (its original raised type), so existing
+    `except TypeError` callers keep working.
+    """
     pass
 
 
-class FieldLengthError(ValidationError):
-    """Raised when a string field exceeds max_length."""
+class FieldLengthError(ValidationError, ValueError):
+    """
+    Raised when a string field exceeds max_length.
+    Also a ValueError (its original raised type), so existing
+    `except ValueError` callers keep working.
+    """
     pass
 
 
@@ -203,6 +218,11 @@ class BulkUpsertError(BulkOperationError):
     pass
 
 
+class BulkDeleteError(BulkOperationError):
+    """Raised when bulk_delete fails on one or more chunks."""
+    pass
+
+
 # ------------------------------------------------------------------ #
 #  Transaction exceptions                                              #
 # ------------------------------------------------------------------ #
@@ -215,8 +235,12 @@ class TransactionError(MydbormError):
     pass
 
 
-class SavepointError(TransactionError):
-    """Raised when a savepoint operation fails."""
+class SavepointError(TransactionError, RuntimeError):
+    """
+    Raised when a savepoint operation fails.
+    Also a RuntimeError (its original raised type), so existing
+    `except RuntimeError` callers keep working.
+    """
     def __init__(self, message: str = "", savepoint: str = ""):
         super().__init__(message, savepoint=savepoint)
         self.savepoint = savepoint
@@ -315,9 +339,11 @@ class SchemaError(MydbormError):
 #  Dialect exceptions                                                  #
 # ------------------------------------------------------------------ #
 
-class UnsupportedDialectError(MydbormError):
+class UnsupportedDialectError(MydbormError, ValueError):
     """
     Raised when an unsupported database dialect is specified.
+    Also a ValueError (its original raised type), so existing
+    `except ValueError` callers keep working.
     """
     def __init__(self, message: str = "", dialect: str = "",
                  supported: list = None):

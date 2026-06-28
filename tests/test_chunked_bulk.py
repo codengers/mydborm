@@ -465,3 +465,15 @@ def test_chunked_delete_raise_on_error():
         with pytest.raises(Exception):
             chunked_bulk_delete(Widget, [1], chunk_size=5,
                                 raise_on_error=True)  # lines 368-375
+
+
+def test_chunked_delete_raise_on_error_uses_bulk_delete_error():
+    """raise_on_error=True in chunked_bulk_delete raises BulkDeleteError
+    specifically, not BulkInsertError (a copy-paste bug in an earlier
+    version raised the wrong class here)."""
+    from unittest.mock import patch
+    from mydborm.exceptions import BulkDeleteError, BulkInsertError
+    with patch.object(Widget, "bulk_delete", side_effect=Exception("db error")):
+        with pytest.raises(BulkDeleteError) as exc_info:
+            chunked_bulk_delete(Widget, [1], chunk_size=5, raise_on_error=True)
+    assert not isinstance(exc_info.value, BulkInsertError)

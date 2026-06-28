@@ -232,6 +232,14 @@ def test_savepoint_outside_transaction_raises():
             pass
 
 
+def test_savepoint_outside_transaction_raises_typed_exception():
+    from mydborm.exceptions import SavepointError
+    db.close()
+    with pytest.raises(SavepointError, match="savepoint.*transaction"):
+        with db.savepoint("bad"):
+            pass
+
+
 # ------------------------------------------------------------------ #
 #  Nested transactions                                                 #
 # ------------------------------------------------------------------ #

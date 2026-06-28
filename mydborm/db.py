@@ -33,6 +33,10 @@ import threading
 from contextlib import contextmanager
 from urllib.parse import urlparse
 
+from .exceptions import (
+    NotConfiguredError, UnsupportedDialectError, SavepointError, RetryExhaustedError,
+)
+
 SUPPORTED_DIALECTS = ("mysql", "yugabyte", "postgres", "postgresql")
 
 
@@ -110,7 +114,7 @@ class ConnectionManager:
             encoding (str): python encoding (default utf-8)
         """
         if "dialect" not in kwargs:
-            raise ValueError(
+            raise UnsupportedDialectError(
                 "dialect is required. "
                 f"Choose from: {SUPPORTED_DIALECTS}"
             )
@@ -178,9 +182,10 @@ class ConnectionManager:
                 )
 
         else:
-            raise ValueError(
+            raise UnsupportedDialectError(
                 f"Unsupported dialect: {self.dialect!r}. "
-                f"Choose from: {SUPPORTED_DIALECTS}"
+                f"Choose from: {SUPPORTED_DIALECTS}",
+                dialect=self.dialect,
             )
 
     # ------------------------------------------------------------------ #
@@ -198,7 +203,7 @@ class ConnectionManager:
         # auto-committed here
         """
         if not self._config:
-            raise RuntimeError(
+            raise NotConfiguredError(
                 "Database not configured.\n"
                 "Call db.configure(...) or db.from_env() first."
             )
@@ -238,7 +243,7 @@ class ConnectionManager:
             )
         """
         if not self._config:
-            raise RuntimeError(
+            raise NotConfiguredError(
                 "Database not configured.\n"
                 "Call db.configure(...) or db.from_env() first."
             )
@@ -322,7 +327,7 @@ class ConnectionManager:
             # both committed or both rolled back
         """
         if not self._config:
-            raise RuntimeError(
+            raise NotConfiguredError(
                 "Database not configured.\n"
                 "Call db.configure(...) or db.from_env() first."
             )
@@ -358,7 +363,7 @@ class ConnectionManager:
             db.execute("UPDATE users SET active = %s WHERE id = %s", [False, 1])
         """
         if not self._config:
-            raise RuntimeError(
+            raise NotConfiguredError(
                 "Database not configured.\n"
                 "Call db.configure(...) or db.from_env() first."
             )
@@ -480,7 +485,7 @@ class ConnectionManager:
         sp_name = name or f"sp_{uuid.uuid4().hex[:8]}"
 
         if not getattr(self._local, "conn", None):
-            raise RuntimeError(
+            raise SavepointError(
                 "savepoint() must be used inside a transaction()."
             )
 

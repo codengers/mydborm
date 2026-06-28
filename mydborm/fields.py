@@ -34,6 +34,8 @@ import json
 from datetime import date, datetime
 from typing import Any, Optional
 
+from .exceptions import FieldRequiredError, FieldTypeError, FieldLengthError
+
 
 class Field:
     """
@@ -66,8 +68,9 @@ class Field:
         if value is None:
             if not self.nullable and self.default is None \
                     and not self.primary_key:
-                raise ValueError(
-                    f"Field '{self.name}' cannot be None."
+                raise FieldRequiredError(
+                    f"Field '{self.name}' cannot be None.",
+                    field=self.name,
                 )
             return self.default if value is None else value
         # Run custom validators
@@ -116,8 +119,9 @@ class IntField(Field):
     def validate(self, value: Any) -> Any:
         value = super().validate(value)
         if value is not None and not isinstance(value, int):
-            raise TypeError(
-                f"Field '{self.name}' expects int, got {type(value).__name__}."
+            raise FieldTypeError(
+                f"Field '{self.name}' expects int, got {type(value).__name__}.",
+                field=self.name, value=value,
             )
         return value
 
@@ -133,14 +137,16 @@ class StrField(Field):
         value = super().validate(value)
         if value is not None:
             if not isinstance(value, str):
-                raise TypeError(
+                raise FieldTypeError(
                     f"Field '{self.name}' expects str, "
-                    f"got {type(value).__name__}."
+                    f"got {type(value).__name__}.",
+                    field=self.name, value=value,
                 )
             if len(value) > self.max_length:
-                raise ValueError(
+                raise FieldLengthError(
                     f"Field '{self.name}' max length is "
-                    f"{self.max_length}, got {len(value)}."
+                    f"{self.max_length}, got {len(value)}.",
+                    field=self.name, value=value,
                 )
         return value
 
@@ -156,9 +162,10 @@ class BoolField(Field):
     def validate(self, value):
         value = super().validate(value)
         if value is not None and not isinstance(value, bool):
-            raise TypeError(
+            raise FieldTypeError(
                 f"Field '{self.name}' expects bool, "
-                f"got {type(value).__name__}."
+                f"got {type(value).__name__}.",
+                field=self.name, value=value,
             )
         return value
 
@@ -190,9 +197,10 @@ class FloatField(Field):
     def validate(self, value: Any) -> Any:
         value = super().validate(value)
         if value is not None and not isinstance(value, (int, float)):
-            raise TypeError(
+            raise FieldTypeError(
                 f"Field '{self.name}' expects float, "
-                f"got {type(value).__name__}."
+                f"got {type(value).__name__}.",
+                field=self.name, value=value,
             )
         return float(value) if value is not None else None
 
@@ -209,9 +217,10 @@ class DateField(Field):
     def validate(self, value: Any) -> Any:
         value = super().validate(value)
         if value is not None and not isinstance(value, (date, str)):
-            raise TypeError(
+            raise FieldTypeError(
                 f"Field '{self.name}' expects date or str, "
-                f"got {type(value).__name__}."
+                f"got {type(value).__name__}.",
+                field=self.name, value=value,
             )
         return value
 
@@ -222,9 +231,10 @@ class DateTimeField(Field):
     def validate(self, value: Any) -> Any:
         value = super().validate(value)
         if value is not None and not isinstance(value, (datetime, str)):
-            raise TypeError(
+            raise FieldTypeError(
                 f"Field '{self.name}' expects datetime or str, "
-                f"got {type(value).__name__}."
+                f"got {type(value).__name__}.",
+                field=self.name, value=value,
             )
         return value
 
@@ -437,9 +447,10 @@ class TinyIntField(Field):
             try:
                 value = int(value)
             except (TypeError, ValueError):
-                raise TypeError(
+                raise FieldTypeError(
                     f"Field '{self.name}' expects int, "
-                    f"got {type(value).__name__}."
+                    f"got {type(value).__name__}.",
+                    field=self.name, value=value,
                 )
             if not (-128 <= value <= 127):
                 raise ValueError(
@@ -467,9 +478,10 @@ class SmallIntField(Field):
             try:
                 value = int(value)
             except (TypeError, ValueError):
-                raise TypeError(
+                raise FieldTypeError(
                     f"Field '{self.name}' expects int, "
-                    f"got {type(value).__name__}."
+                    f"got {type(value).__name__}.",
+                    field=self.name, value=value,
                 )
             if not (-32768 <= value <= 32767):
                 raise ValueError(
@@ -498,9 +510,10 @@ class BigIntField(Field):
             try:
                 value = int(value)
             except (TypeError, ValueError):
-                raise TypeError(
+                raise FieldTypeError(
                     f"Field '{self.name}' expects int, "
-                    f"got {type(value).__name__}."
+                    f"got {type(value).__name__}.",
+                    field=self.name, value=value,
                 )
         return value
 
@@ -531,9 +544,10 @@ class UnsignedBigIntField(Field):
             try:
                 value = int(value)
             except (TypeError, ValueError):
-                raise TypeError(
+                raise FieldTypeError(
                     f"Field '{self.name}' expects int, "
-                    f"got {type(value).__name__}."
+                    f"got {type(value).__name__}.",
+                    field=self.name, value=value,
                 )
             if value < 0:
                 raise ValueError(
@@ -574,9 +588,10 @@ class DoubleField(Field):
             try:
                 value = float(value)
             except (TypeError, ValueError):
-                raise TypeError(
+                raise FieldTypeError(
                     f"Field '{self.name}' expects float, "
-                    f"got {type(value).__name__}."
+                    f"got {type(value).__name__}.",
+                    field=self.name, value=value,
                 )
         return value
 
@@ -639,9 +654,10 @@ class CharField(Field):
         if value is not None:
             value = str(value)
             if len(value) > self.length:
-                raise ValueError(
+                raise FieldLengthError(
                     f"Field '{self.name}' CHAR({self.length}) — "
-                    f"value too long: {len(value)} chars. Got: {value!r}"
+                    f"value too long: {len(value)} chars. Got: {value!r}",
+                    field=self.name, value=value,
                 )
         return value
 
@@ -826,9 +842,10 @@ class TimeField(Field):
         if value is not None:
             import datetime
             if not isinstance(value, (datetime.time, str)):
-                raise TypeError(
+                raise FieldTypeError(
                     f"Field '{self.name}' expects datetime.time or str, "
-                    f"got {type(value).__name__}."
+                    f"got {type(value).__name__}.",
+                    field=self.name, value=value,
                 )
         return value
 
@@ -862,9 +879,10 @@ class TimestampField(Field):
         if value is not None:
             import datetime
             if not isinstance(value, (datetime.datetime, str)):
-                raise TypeError(
+                raise FieldTypeError(
                     f"Field '{self.name}' expects datetime.datetime or str, "
-                    f"got {type(value).__name__}."
+                    f"got {type(value).__name__}.",
+                    field=self.name, value=value,
                 )
         return value
 
@@ -958,9 +976,10 @@ class SetField(Field):
             elif isinstance(value, (list, set, tuple)):
                 items = list(value)
             else:
-                raise TypeError(
+                raise FieldTypeError(
                     f"Field '{self.name}' expects str or list, "
-                    f"got {type(value).__name__}."
+                    f"got {type(value).__name__}.",
+                    field=self.name, value=value,
                 )
             invalid = [i for i in items if i not in self.choices]
             if invalid:
@@ -1041,9 +1060,10 @@ class PasswordField(Field):
         if isinstance(value, str):
             value = value.encode("utf-8")
         elif not isinstance(value, bytes):
-            raise TypeError(
+            raise FieldTypeError(
                 f"Field '{self.name}' expects str or bytes password, "
-                f"got {type(value).__name__}."
+                f"got {type(value).__name__}.",
+                field=self.name, value=value,
             )
 
         hashed = bcrypt.hashpw(value, bcrypt.gensalt(rounds=self.rounds))
@@ -1108,8 +1128,9 @@ class PasswordField(Field):
 
     def needs_rehash(self, hashed_password: str) -> bool:
         """
-        Check if a stored hash needs to be upgraded
-        (e.g. rounds changed).
+        Check if a stored hash needs to be upgraded — true when the hash's
+        own encoded cost factor differs from this field's current `rounds`
+        (e.g. rounds was raised from 10 to 12 after the hash was created).
 
         Usage:
             user = User.get(id=1)
@@ -1117,15 +1138,20 @@ class PasswordField(Field):
                 # Update with new hash on next login
                 User.update({"password": new_plain}, id=user["id"])
         """
-        try:
-            import bcrypt
-        except ImportError:
-            raise ImportError("pip install bcrypt")
+        if isinstance(hashed_password, bytes):
+            hashed_password = hashed_password.decode("utf-8")
 
-        if isinstance(hashed_password, str):
-            hashed_password = hashed_password.encode("utf-8")
-        return bcrypt.checkpw(b"", hashed_password) or \
-               bcrypt.gensalt(rounds=self.rounds) != hashed_password[:29]
+        # bcrypt hash format: $<algorithm>$<cost>$<salt+hash>
+        parts = hashed_password.split("$")
+        if len(parts) < 3:
+            return True  # not a recognizable bcrypt hash — needs rehashing
+
+        try:
+            current_rounds = int(parts[2])
+        except ValueError:
+            return True
+
+        return current_rounds != self.rounds
 
 
 # ------------------------------------------------------------------ #

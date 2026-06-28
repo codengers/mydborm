@@ -32,11 +32,29 @@ def test_intfield_invalid():
         f.validate("twenty")
 
 
+def test_intfield_invalid_raises_typed_exception():
+    from mydborm.exceptions import FieldTypeError
+    f = IntField()
+    f.name = "age"
+    with pytest.raises(FieldTypeError) as exc_info:
+        f.validate("twenty")
+    assert exc_info.value.field == "age"
+
+
 def test_strfield_max_length():
     f = StrField(max_length=5)
     f.name = "code"
     with pytest.raises(ValueError, match="max length"):
         f.validate("toolongstring")
+
+
+def test_strfield_max_length_raises_typed_exception():
+    from mydborm.exceptions import FieldLengthError
+    f = StrField(max_length=5)
+    f.name = "code"
+    with pytest.raises(FieldLengthError) as exc_info:
+        f.validate("toolongstring")
+    assert exc_info.value.field == "code"
 
 
 def test_strfield_valid():
@@ -72,6 +90,15 @@ def test_nullable_false_raises_on_none():
     f.name = "username"
     with pytest.raises(ValueError, match="cannot be None"):
         f.validate(None)
+
+
+def test_nullable_false_raises_typed_exception():
+    from mydborm.exceptions import FieldRequiredError
+    f = StrField(nullable=False)
+    f.name = "username"
+    with pytest.raises(FieldRequiredError) as exc_info:
+        f.validate(None)
+    assert exc_info.value.field == "username"
 
 
 def test_foreignkey_sql_def():
