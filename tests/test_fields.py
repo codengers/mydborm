@@ -104,7 +104,13 @@ def test_nullable_false_raises_typed_exception():
 def test_foreignkey_sql_def():
     f = ForeignKeyField(to="User")
     f.name = "user_id"
-    assert "FK -> User" in f.to_sql_def()
+    assert f.to_sql_def() == "INT"
+
+
+def test_foreignkey_sql_def_nullable_false():
+    f = ForeignKeyField(to="User", nullable=False)
+    f.name = "user_id"
+    assert f.to_sql_def("mysql") == "INT NOT NULL"
 
 # ------------------------------------------------------------------ #
 #  Additional field coverage                                           #

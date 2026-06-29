@@ -18,8 +18,28 @@ Provides declarative model definition + CRUD operations.
 
 import json
 from typing import Optional
-from .fields import Field, JSONField
+from .fields import Field, JSONField, ForeignKeyField
 from .db import db
+
+
+def _find_model_by_name(name: str):
+    """
+    Resolve a model class by its class name, searching every BaseModel
+    subclass (however deeply nested). Returns None if not found — shared
+    by LazyRelation and BaseModel.create_table()'s FK constraint
+    generation, so both resolve model names the same way.
+    """
+    def find_subclass(cls, name):
+        for sub in cls.__subclasses__():
+            if sub.__name__ == name:
+                return sub
+            found = find_subclass(sub, name)
+            if found:
+                return found
+        return None
+
+    return find_subclass(BaseModel, name)
+
 
 # ------------------------------------------------------------------ #
 #  LazyRelation descriptor                                             #
@@ -91,16 +111,7 @@ class LazyRelation:
         Resolve related model class by name.
         Searches all BaseModel subclasses.
         """
-        def find_subclass(cls, name):
-            for sub in cls.__subclasses__():
-                if sub.__name__ == name:
-                    return sub
-                found = find_subclass(sub, name)
-                if found:
-                    return found
-            return None
-
-        model = find_subclass(BaseModel, self.related_model_name)
+        model = _find_model_by_name(self.related_model_name)
         if model is None:
             raise ValueError(
                 "LazyRelation: could not find model "
@@ -1023,6 +1034,42 @@ class BaseModel(metaclass=ModelMeta):
             else:
                 pk_clause = "PRIMARY KEY (" + ", ".join(f"`{c}`" for c in pk_cols) + ")"
             col_defs.append("  " + pk_clause)
+
+        # Add real FOREIGN KEY constraints for any ForeignKeyField
+        for fname, field in cls._fields.items():
+            if not isinstance(field, ForeignKeyField):
+                continue
+            ref_model = _find_model_by_name(field.to)
+            if ref_model is None:
+                raise ValueError(
+                    f"ForeignKeyField '{fname}' on {cls.__name__} references model "
+                    f"{field.to!r}, which could not be found. Make sure it is defined "
+                    f"and imported before calling {cls.__name__}.create_table()."
+                )
+            if getattr(ref_model, "_composite_pk", None):
+                raise ValueError(
+                    f"ForeignKeyField '{fname}' on {cls.__name__} references "
+                    f"{field.to!r}, which has a composite primary key — referencing "
+                    f"composite keys isn't supported. Point it at a model with a "
+                    f"single-column primary key instead."
+                )
+            ref_pk = next(
+                (rf for rf, rfield in ref_model._fields.items() if rfield.primary_key),
+                None,
+            )
+            if ref_pk is None:
+                raise ValueError(
+                    f"ForeignKeyField '{fname}' on {cls.__name__} references "
+                    f"{field.to!r}, which has no primary key defined."
+                )
+            if dialect in ("yugabyte", "postgres"):
+                col_defs.append(
+                    f'  FOREIGN KEY ("{fname}") REFERENCES "{ref_model._table}" ("{ref_pk}")'
+                )
+            else:
+                col_defs.append(
+                    f"  FOREIGN KEY (`{fname}`) REFERENCES `{ref_model._table}` (`{ref_pk}`)"
+                )
 
         col_separator = ",\n"
         if db.dialect in ("yugabyte", "postgres"):
