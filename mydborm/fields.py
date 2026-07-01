@@ -270,6 +270,12 @@ class ForeignKeyField(Field):
     """
     Foreign key reference to another model's primary key.
 
+    BaseModel.create_table() resolves `to` against every defined
+    BaseModel subclass and adds a real `FOREIGN KEY (...) REFERENCES
+    ...` table constraint for this column. The referenced model must
+    already exist as a table (create it first) and must have a
+    single-column primary key.
+
     Usage:
         author = ForeignKeyField(to="Author", nullable=False)
     """
@@ -279,9 +285,8 @@ class ForeignKeyField(Field):
         super().__init__(**kwargs)
         self.to = to   # referenced model name as string
 
-    def to_sql_def(self) -> str:
-        base = super().to_sql_def()
-        return f"{base}  -- FK -> {self.to}"
+    def to_sql_def(self, dialect: str = "mysql") -> str:
+        return super().to_sql_def(dialect)
 
 # ------------------------------------------------------------------ #
 #  Built-in validators                                                 #

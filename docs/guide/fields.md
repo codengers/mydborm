@@ -633,11 +633,12 @@ UserProfile.update({"settings": settings}, id=uid)
 
 ## ForeignKeyField
 
-`ForeignKeyField` is how you link one table to another. Behind the
-scenes it's just an `INT` column, but it's meant to hold the primary
-key value of a row in a different table — the standard way relational
-databases represent "this thing belongs to that thing." Pass the
-related model's class name as a string to `to=`.
+`ForeignKeyField` is how you link one table to another. It's an `INT`
+column that holds the primary key value of a row in a different
+table, and `create_table()` backs it with a real database-level
+`FOREIGN KEY ... REFERENCES ...` constraint — the database itself
+rejects inserts/updates that point at a row that doesn't exist. Pass
+the related model's class name as a string to `to=`.
 
 ```python
 from mydborm import ForeignKeyField
@@ -649,20 +650,49 @@ class Author(BaseModel):
 
 class Book(BaseModel):
     __tablename__ = "books"
-    id          = IntField(primary_key=True)
-    title       = StrField(max_length=200, nullable=False)
-    author_id   = ForeignKeyField(to="Author", nullable=False)
-    category_id = ForeignKeyField(to="Category", nullable=True)  # optional FK
-    price       = FloatField(nullable=False)
+    id        = IntField(primary_key=True)
+    title     = StrField(max_length=200, nullable=False)
+    author_id = ForeignKeyField(to="Author", nullable=False)
+    price     = FloatField(nullable=False)
+
+Author.create_table()
+Book.create_table()
 ```
 
-**SQL generated:**
+**SQL generated (`Book.create_table()`):**
 
 ```sql
--- MySQL / YugabyteDB
-author_id   INT NOT NULL,
-category_id INT
+-- MySQL
+CREATE TABLE books (
+  id        INT NOT NULL AUTO_INCREMENT,
+  title     VARCHAR(200) NOT NULL,
+  author_id INT NOT NULL,
+  price     FLOAT NOT NULL,
+  PRIMARY KEY (id),
+  FOREIGN KEY (author_id) REFERENCES authors (id)
+);
 ```
+
+```python
+Book.create(title="Orphan", author_id=999)
+# -> raises a database IntegrityError / ForeignKeyViolation —
+#    there's no author with id 999
+```
+
+!!! note "Requirements"
+    - The referenced model (`to=`) must already be defined (imported)
+      before you call `create_table()` — it's resolved by class name
+      against every `BaseModel` subclass. A self-reference (e.g.
+      `parent_id = ForeignKeyField(to="Category")` on `Category`
+      itself) is fine.
+    - The referenced model must have a **single-column** primary key.
+      Referencing a model with a composite `__pk__` raises `ValueError`
+      at `create_table()` time.
+    - Create the referenced table first (or, for a self-reference,
+      it's created automatically since the constraint targets the same
+      `CREATE TABLE` statement).
+    - `on_delete`/`on_update` cascade actions (e.g. `ON DELETE CASCADE`)
+      aren't generated — only the bare constraint.
 
 If you find yourself writing a lot of `ForeignKeyField` columns and
 then joining across them by hand, take a look at
