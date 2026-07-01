@@ -124,6 +124,14 @@ User.query().order_by("username").all()
 User.query().order_by("score", desc=True).limit(10).offset(20).all()
 ```
 
+Chain `.order_by()` multiple times to sort by more than one column — each
+call adds another sort key instead of replacing the last one:
+
+```python
+# ORDER BY region ASC, revenue DESC
+User.query().order_by("region").order_by("revenue", desc=True).all()
+```
+
 If you're paging through results often, see `.paginate()` below — it
 wraps limit/offset into a single call that also tells you how many pages
 there are in total.

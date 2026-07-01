@@ -153,6 +153,13 @@ def test_order_by_name():
     assert names == sorted(names)
 
 
+def test_order_by_multiple_columns():
+    """Chained .order_by() calls stack instead of overwriting each other."""
+    rows = Item.query().order_by("active").order_by("price", desc=True).all()
+    pairs = [(r["active"], r["price"]) for r in rows]
+    assert pairs == sorted(pairs, key=lambda p: (p[0], -p[1]))
+
+
 # ------------------------------------------------------------------ #
 #  Pagination                                                          #
 # ------------------------------------------------------------------ #

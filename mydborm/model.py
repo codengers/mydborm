@@ -163,8 +163,7 @@ class QueryBuilder:
     def __init__(self, model_class):
         self._model     = model_class
         self._wheres    = []
-        self._order     = None
-        self._order_dir = "ASC"
+        self._orders    = []
         self._limit     = None
         self._offset    = None
         self._joins     = []
@@ -487,9 +486,12 @@ class QueryBuilder:
         """
         .order_by("name")           → ORDER BY name ASC
         .order_by("price", desc=True) → ORDER BY price DESC
+
+        Chainable — each call adds another sort key:
+        .order_by("region").order_by("revenue", desc=True)
+            → ORDER BY region ASC, revenue DESC
         """
-        self._order     = field
-        self._order_dir = "DESC" if desc else "ASC"
+        self._orders.append((field, "DESC" if desc else "ASC"))
         return self
 
     # ── Pagination ───────────────────────────────────────────────── #
@@ -551,8 +553,10 @@ class QueryBuilder:
             sql += " HAVING " + " AND ".join(self._having)
 
         # ORDER BY
-        if self._order:
-            sql += " ORDER BY " + self._order + " " + self._order_dir
+        if self._orders:
+            sql += " ORDER BY " + ", ".join(
+                f"{field} {direction}" for field, direction in self._orders
+            )
 
         # LIMIT / OFFSET
         if self._limit is not None and self._offset is not None:

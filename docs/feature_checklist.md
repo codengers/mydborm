@@ -134,7 +134,7 @@ supported.
 ## Sorting
 - [x] Ascending order
 - [x] Descending order
-- [ ] Multi-column sorting — `.order_by()` takes one field per call and the second call overwrites the first; you cannot sort by two columns in one query today
+- [x] Multi-column sorting — chained `.order_by()` calls stack: `.order_by("region").order_by("revenue", desc=True)`
 
 ## Filtering
 - [x] WHERE conditions
