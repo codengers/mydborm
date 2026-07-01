@@ -113,7 +113,7 @@ supported.
 - [x] Handle database-specific SQL differences — `mydborm/dialects/` (identifier quoting, `AUTO_INCREMENT` vs `SERIAL`, `JSON` vs `JSONB`, etc.)
 
 ## Relationship Cascading
-- [ ] Cascade insert / update / delete — `delete()` is a plain `DELETE FROM ... WHERE ...`; deleting a parent does **not** delete its children at the application level. `ForeignKeyField` now generates a real `FOREIGN KEY` constraint (see Foreign key mapping above), but without `ON DELETE`/`ON UPDATE` actions — by default the database rejects deleting a referenced parent row rather than cascading.
+- [x] Cascade delete / update — `ForeignKeyField(to=..., on_delete=..., on_update=...)` emits `ON DELETE`/`ON UPDATE` actions (`CASCADE`, `SET NULL`, `RESTRICT`, `NO ACTION`, `SET DEFAULT`) on the generated `FOREIGN KEY` constraint; the database enforces the cascade, not application code. `on_delete="SET NULL"` requires the column to be `nullable=True`. Default (no action passed) is the database's own default, `RESTRICT`.
 
 ## Caching Support
 - [ ] Query caching

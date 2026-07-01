@@ -278,12 +278,38 @@ class ForeignKeyField(Field):
 
     Usage:
         author = ForeignKeyField(to="Author", nullable=False)
+
+        # Delete a Book automatically when its Author is deleted
+        author = ForeignKeyField(to="Author", nullable=False, on_delete="CASCADE")
+
+        # Null out the column instead of blocking the delete
+        author = ForeignKeyField(to="Author", nullable=True, on_delete="SET NULL")
     """
     sql_type = "INT"
 
-    def __init__(self, to: str, **kwargs):
+    ACTIONS = {"CASCADE", "SET NULL", "RESTRICT", "NO ACTION", "SET DEFAULT"}
+
+    def __init__(self, to: str, on_delete: str = None, on_update: str = None, **kwargs):
         super().__init__(**kwargs)
         self.to = to   # referenced model name as string
+        self.on_delete = self._normalize_action("on_delete", on_delete)
+        self.on_update = self._normalize_action("on_update", on_update)
+        if self.on_delete == "SET NULL" and not self.nullable:
+            raise ValueError(
+                "ForeignKeyField with on_delete='SET NULL' must also be nullable=True "
+                "— the database can't null out a NOT NULL column."
+            )
+
+    def _normalize_action(self, arg_name: str, action):
+        if action is None:
+            return None
+        normalized = action.strip().upper()
+        if normalized not in self.ACTIONS:
+            raise ValueError(
+                f"ForeignKeyField {arg_name}={action!r} is not a valid action. "
+                f"Choose one of: {', '.join(sorted(self.ACTIONS))}."
+            )
+        return normalized
 
     def to_sql_def(self, dialect: str = "mysql") -> str:
         return super().to_sql_def(dialect)

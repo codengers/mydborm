@@ -1062,13 +1062,19 @@ class BaseModel(metaclass=ModelMeta):
                     f"ForeignKeyField '{fname}' on {cls.__name__} references "
                     f"{field.to!r}, which has no primary key defined."
                 )
+            actions = ""
+            if field.on_delete:
+                actions += f" ON DELETE {field.on_delete}"
+            if field.on_update:
+                actions += f" ON UPDATE {field.on_update}"
+
             if dialect in ("yugabyte", "postgres"):
                 col_defs.append(
-                    f'  FOREIGN KEY ("{fname}") REFERENCES "{ref_model._table}" ("{ref_pk}")'
+                    f'  FOREIGN KEY ("{fname}") REFERENCES "{ref_model._table}" ("{ref_pk}"){actions}'
                 )
             else:
                 col_defs.append(
-                    f"  FOREIGN KEY (`{fname}`) REFERENCES `{ref_model._table}` (`{ref_pk}`)"
+                    f"  FOREIGN KEY (`{fname}`) REFERENCES `{ref_model._table}` (`{ref_pk}`){actions}"
                 )
 
         col_separator = ",\n"
