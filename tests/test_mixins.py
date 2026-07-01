@@ -179,6 +179,33 @@ def test_soft_delete_exists_excludes_deleted():
     assert Post.exists(id=pid) is False
 
 
+def test_soft_delete_query_excludes_deleted():
+    p1 = Post.create(title="Post 1")
+    p2 = Post.create(title="Post 2")
+    Post.soft_delete(id=p1)
+    rows = Post.query().order_by("title").all()
+    assert len(rows) == 1
+    assert rows[0]["title"] == "Post 2"
+
+
+def test_soft_delete_query_supports_pagination():
+    Post.create(title="Alpha")
+    p2 = Post.create(title="Beta")
+    Post.create(title="Gamma")
+    Post.soft_delete(id=p2)
+    result = Post.query().order_by("title").paginate(page=1, per_page=10)
+    titles = [r["title"] for r in result["data"]]
+    assert titles == ["Alpha", "Gamma"]
+
+
+def test_soft_delete_query_with_deleted_includes_deleted():
+    p1 = Post.create(title="Post 1")
+    p2 = Post.create(title="Post 2")
+    Post.soft_delete(id=p1)
+    rows = Post.query_with_deleted().order_by("title").all()
+    assert len(rows) == 2
+
+
 # ------------------------------------------------------------------ #
 #  SoftDeleteMixin — restore                                           #
 # ------------------------------------------------------------------ #

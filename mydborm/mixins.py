@@ -63,6 +63,11 @@ class SoftDeleteMixin:
         Post.all_with_deleted()        # includes deleted rows
         Post.restore(id=pid)           # clears deleted_at
         Post.purge(id=pid)             # permanent delete
+
+        # Custom queries (pagination, ordering, etc.) also exclude
+        # deleted rows by default — use query_with_deleted() to opt out.
+        Post.query().order_by("title").paginate(page=1, per_page=20)
+        Post.query_with_deleted().all()
     """
 
     SOFT_DELETE_FIELD = "deleted_at"
@@ -76,6 +81,8 @@ class SoftDeleteMixin:
         cls.all              = classmethod(SoftDeleteMixin.all.__func__)
         cls.filter           = classmethod(SoftDeleteMixin.filter.__func__)
         cls.get              = classmethod(SoftDeleteMixin.get.__func__)
+        cls.query            = classmethod(SoftDeleteMixin.query.__func__)
+        cls.query_with_deleted = classmethod(SoftDeleteMixin.query_with_deleted.__func__)
         cls.all_with_deleted = classmethod(SoftDeleteMixin.all_with_deleted.__func__)
         cls.only_deleted     = classmethod(SoftDeleteMixin.only_deleted.__func__)
         cls.soft_delete      = classmethod(SoftDeleteMixin.soft_delete.__func__)
@@ -122,9 +129,31 @@ class SoftDeleteMixin:
         return q.first()
 
     @classmethod
+    def query(cls):
+        """
+        Return a QueryBuilder pre-filtered to exclude soft-deleted rows.
+
+        Chain whatever else you need — .order_by(), .paginate(), custom
+        .where() calls — the soft-delete filter is already applied, so
+        deleted rows can't leak into hand-built queries the way they
+        would from a bare QueryBuilder(cls).
+
+        Usage:
+            Post.query().order_by("title").paginate(page=1, per_page=20)
+
+        Use query_with_deleted() instead if you need to see everything.
+        """
+        return cls._qb().where(f"{cls.SOFT_DELETE_FIELD}__null", True)
+
+    @classmethod
+    def query_with_deleted(cls):
+        """Return a QueryBuilder with no soft-delete filter — sees every row."""
+        return cls._qb()
+
+    @classmethod
     def all_with_deleted(cls) -> list:
         """Return ALL rows including soft-deleted."""
-        return cls._qb().all()
+        return cls.query_with_deleted().all()
 
     @classmethod
     def only_deleted(cls) -> list:
