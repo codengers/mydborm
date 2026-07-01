@@ -100,7 +100,7 @@ from .migrations import (
 from .mixins import SoftDeleteMixin, AuditMixin, TimestampMixin
 from .migrate import MigrationEngine, MigrationResult, TypeMapper, ObjectMigrator
 
-__version__ = "1.10.1"
+__version__ = "1.11.0"
 __author__  = "Codengers"
 __license__ = "MIT"
 
