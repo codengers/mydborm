@@ -679,6 +679,39 @@ Book.create(title="Orphan", author_id=999)
 #    there's no author with id 999
 ```
 
+### Cascade actions — `on_delete` / `on_update`
+
+Pass `on_delete=` and/or `on_update=` to control what the database does
+to child rows when the referenced parent row is deleted or its key is
+updated. Accepted values: `"CASCADE"`, `"SET NULL"`, `"RESTRICT"`,
+`"NO ACTION"`, `"SET DEFAULT"` (case-insensitive).
+
+```python
+class Book(BaseModel):
+    __tablename__ = "books"
+    id        = IntField(primary_key=True)
+    title     = StrField(max_length=200, nullable=False)
+    author_id = ForeignKeyField(to="Author", nullable=False, on_delete="CASCADE")
+```
+
+```sql
+FOREIGN KEY (author_id) REFERENCES authors (id) ON DELETE CASCADE
+```
+
+Deleting the author now deletes every book referencing it. If you'd
+rather keep the child rows and just clear the reference, use
+`on_delete="SET NULL"` — this requires the column to also be
+`nullable=True` (mydborm raises `ValueError` at field-definition time
+if you forget), since the database can't null out a `NOT NULL` column:
+
+```python
+author_id = ForeignKeyField(to="Author", nullable=True, on_delete="SET NULL")
+```
+
+With no `on_delete`/`on_update` passed, the default database behavior
+applies (MySQL/PostgreSQL/YugabyteDB all default to `RESTRICT`) —
+deleting a referenced parent row is rejected.
+
 !!! note "Requirements"
     - The referenced model (`to=`) must already be defined (imported)
       before you call `create_table()` — it's resolved by class name
@@ -691,8 +724,6 @@ Book.create(title="Orphan", author_id=999)
     - Create the referenced table first (or, for a self-reference,
       it's created automatically since the constraint targets the same
       `CREATE TABLE` statement).
-    - `on_delete`/`on_update` cascade actions (e.g. `ON DELETE CASCADE`)
-      aren't generated — only the bare constraint.
 
 If you find yourself writing a lot of `ForeignKeyField` columns and
 then joining across them by hand, take a look at

@@ -50,6 +50,26 @@ class FKRefToMissing(BaseModel):
     ghost_id = ForeignKeyField(to="NoSuchModelXYZ", nullable=False)
 
 
+class FKPublisher(BaseModel):
+    __tablename__ = "fk_publishers"
+    id   = IntField(primary_key=True)
+    name = StrField(max_length=100, nullable=False)
+
+
+class FKBookCascade(BaseModel):
+    __tablename__ = "fk_books_cascade"
+    id           = IntField(primary_key=True)
+    title        = StrField(max_length=200, nullable=False)
+    publisher_id = ForeignKeyField(to="FKPublisher", nullable=False, on_delete="CASCADE")
+
+
+class FKBookSetNull(BaseModel):
+    __tablename__ = "fk_books_set_null"
+    id           = IntField(primary_key=True)
+    title        = StrField(max_length=200, nullable=False)
+    publisher_id = ForeignKeyField(to="FKPublisher", nullable=True, on_delete="SET NULL")
+
+
 # ------------------------------------------------------------------ #
 #  Fixtures                                                           #
 # ------------------------------------------------------------------ #
@@ -71,8 +91,14 @@ def setup_db():
         cur.execute("DROP TABLE IF EXISTS fk_authors")
         cur.execute("DROP TABLE IF EXISTS fk_ref_to_composite")
         cur.execute("DROP TABLE IF EXISTS fk_composite_target")
+        cur.execute("DROP TABLE IF EXISTS fk_books_cascade")
+        cur.execute("DROP TABLE IF EXISTS fk_books_set_null")
+        cur.execute("DROP TABLE IF EXISTS fk_publishers")
     FKAuthor.create_table()
     FKBook.create_table()
+    FKPublisher.create_table()
+    FKBookCascade.create_table()
+    FKBookSetNull.create_table()
     yield
     with db.connect() as conn:
         cur = conn.cursor()
@@ -80,6 +106,9 @@ def setup_db():
         cur.execute("DROP TABLE IF EXISTS fk_authors")
         cur.execute("DROP TABLE IF EXISTS fk_ref_to_composite")
         cur.execute("DROP TABLE IF EXISTS fk_composite_target")
+        cur.execute("DROP TABLE IF EXISTS fk_books_cascade")
+        cur.execute("DROP TABLE IF EXISTS fk_books_set_null")
+        cur.execute("DROP TABLE IF EXISTS fk_publishers")
     db.close()
 
 
@@ -89,6 +118,9 @@ def clean():
         cur = conn.cursor()
         cur.execute("DELETE FROM fk_books")
         cur.execute("DELETE FROM fk_authors")
+        cur.execute("DELETE FROM fk_books_cascade")
+        cur.execute("DELETE FROM fk_books_set_null")
+        cur.execute("DELETE FROM fk_publishers")
     yield
 
 
@@ -105,6 +137,22 @@ def test_foreignkey_field_emits_plain_column_sql():
     assert f.to_sql_def("mysql") == "INT NOT NULL"
 
 
+def test_foreignkey_on_delete_on_update_normalized():
+    f = ForeignKeyField(to="FKAuthor", nullable=False, on_delete="cascade", on_update="Cascade")
+    assert f.on_delete == "CASCADE"
+    assert f.on_update == "CASCADE"
+
+
+def test_foreignkey_invalid_action_raises():
+    with pytest.raises(ValueError, match="not a valid action"):
+        ForeignKeyField(to="FKAuthor", nullable=False, on_delete="DROP TABLE")
+
+
+def test_foreignkey_set_null_requires_nullable():
+    with pytest.raises(ValueError, match="must also be nullable"):
+        ForeignKeyField(to="FKAuthor", nullable=False, on_delete="SET NULL")
+
+
 # ------------------------------------------------------------------ #
 #  DDL generation                                                      #
 # ------------------------------------------------------------------ #
@@ -117,6 +165,22 @@ def test_create_table_emits_foreign_key_constraint():
     assert "FOREIGN KEY" in ddl
     assert "REFERENCES" in ddl
     assert "fk_authors" in ddl
+
+
+def test_create_table_emits_on_delete_cascade():
+    with db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SHOW CREATE TABLE fk_books_cascade")
+        ddl = cur.fetchone()[1]
+    assert "ON DELETE CASCADE" in ddl
+
+
+def test_create_table_emits_on_delete_set_null():
+    with db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SHOW CREATE TABLE fk_books_set_null")
+        ddl = cur.fetchone()[1]
+    assert "ON DELETE SET NULL" in ddl
 
 
 # ------------------------------------------------------------------ #
@@ -133,6 +197,25 @@ def test_fk_valid_insert_succeeds():
     bid = FKBook.create(title="LOTR", author_id=aid)
     book = FKBook.get(id=bid)
     assert book["author_id"] == aid
+
+
+def test_fk_on_delete_cascade_removes_child_rows():
+    pid = FKPublisher.create(name="Penguin")
+    FKBookCascade.create(title="Book A", publisher_id=pid)
+    FKBookCascade.create(title="Book B", publisher_id=pid)
+
+    FKPublisher.delete(id=pid)
+
+    assert FKBookCascade.query().where("publisher_id", pid).all() == []
+
+
+def test_fk_on_delete_set_null_nulls_child_column():
+    pid = FKPublisher.create(name="Tor")
+    bid = FKBookSetNull.create(title="Book C", publisher_id=pid)
+
+    FKPublisher.delete(id=pid)
+
+    assert FKBookSetNull.get(id=bid)["publisher_id"] is None
 
 
 def test_fk_navigation_still_works_alongside_constraint():
