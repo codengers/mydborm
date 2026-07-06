@@ -48,6 +48,17 @@ CREATE TABLE IF NOT EXISTS "{MIGRATIONS_TABLE}" (
 );
 """
 
+CREATE_MIGRATIONS_TABLE_SQLITE = f"""
+CREATE TABLE IF NOT EXISTS `{MIGRATIONS_TABLE}` (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  version     VARCHAR(64)  NOT NULL UNIQUE,
+  description VARCHAR(255) NOT NULL,
+  checksum    VARCHAR(64)  NOT NULL,
+  applied_at  DATETIME     NOT NULL,
+  rolled_back INTEGER      DEFAULT 0
+);
+"""
+
 
 # ------------------------------------------------------------------ #
 #  Helpers                                                             #
@@ -69,11 +80,12 @@ def _get_dialect() -> str:
 def _ensure_migrations_table():
     """Create the migrations tracking table if it doesn't exist."""
     dialect = _get_dialect()
-    sql = (
-        CREATE_MIGRATIONS_TABLE_MYSQL
-        if dialect == "mysql"
-        else CREATE_MIGRATIONS_TABLE_YSQL
-    )
+    if dialect == "mysql":
+        sql = CREATE_MIGRATIONS_TABLE_MYSQL
+    elif dialect == "sqlite":
+        sql = CREATE_MIGRATIONS_TABLE_SQLITE
+    else:
+        sql = CREATE_MIGRATIONS_TABLE_YSQL
     with db.connect() as conn:
         cur = conn.cursor()
         cur.execute(sql)
@@ -117,6 +129,20 @@ def get_live_schema(table: str) -> dict:
             except Exception:
                 return {}
 
+        elif dialect == "sqlite":
+            cur.execute(f"PRAGMA table_info(`{table}`);")
+            rows = cur.fetchall()
+            if not rows:
+                return {}
+            for row in rows:
+                # PRAGMA table_info: cid, name, type, notnull, dflt_value, pk
+                schema[row[1]] = {
+                    "type":     row[2],
+                    "nullable": "NO" if row[3] else "YES",
+                    "key":      "PRI" if row[5] else "",
+                    "default":  row[4],
+                }
+
         else:
             cur.execute(f"""
                 SELECT column_name, data_type, is_nullable, column_default
@@ -149,6 +175,11 @@ def table_exists(table: str) -> bool:
                 WHERE table_schema = DATABASE()
                 AND table_name = '{table}';
             """)
+        elif dialect == "sqlite":
+            cur.execute(f"""
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type = 'table' AND name = '{table}';
+            """)
         else:
             cur.execute(f"""
                 SELECT COUNT(*) FROM information_schema.tables
@@ -175,9 +206,10 @@ def diff_schema(model_class) -> dict:
         "unchanged"  : ["id", "username", ...]
     }
     """
-    table  = model_class._table
-    fields = model_class._fields
-    live   = get_live_schema(table)
+    table   = model_class._table
+    fields  = model_class._fields
+    dialect = _get_dialect()
+    live    = get_live_schema(table)
 
     diff = {
         "table":       table,
@@ -190,7 +222,7 @@ def diff_schema(model_class) -> dict:
     if diff["new_table"]:
         # All columns are new
         for fname, field in fields.items():
-            diff["add_columns"][fname] = field.to_sql_def()
+            diff["add_columns"][fname] = field.to_sql_def(dialect)
         return diff
 
     live_cols  = set(live.keys())
@@ -198,7 +230,7 @@ def diff_schema(model_class) -> dict:
 
     # Columns in model but not in DB → add
     for col in model_cols - live_cols:
-        diff["add_columns"][col] = fields[col].to_sql_def()
+        diff["add_columns"][col] = fields[col].to_sql_def(dialect)
 
     # Columns in DB but not in model → drop
     diff["drop_columns"] = list(live_cols - model_cols)
@@ -228,7 +260,7 @@ def generate_migration_sql(model_class) -> list[str]:
     if diff["new_table"]:
         col_defs = []
         for fname, field in model_class._fields.items():
-            col_defs.append(f"  {fname} {field.to_sql_def()}")
+            col_defs.append(f"  {fname} {field.to_sql_def(dialect)}")
         col_block = ",\n".join(col_defs)
 
         if dialect == "mysql":
@@ -236,6 +268,11 @@ def generate_migration_sql(model_class) -> list[str]:
                 f"CREATE TABLE IF NOT EXISTS `{table}` (\n"
                 f"{col_block}\n"
                 f") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"
+            )
+        elif dialect == "sqlite":
+            sqls.append(
+                f"CREATE TABLE IF NOT EXISTS `{table}` (\n"
+                f"{col_block}\n);"
             )
         else:
             sqls.append(
