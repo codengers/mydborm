@@ -10,6 +10,7 @@
 from .mysql    import MySQLDialect
 from .yugabyte import YugabyteDialect
 from .postgres import PostgreSQLDialect
+from .sqlite   import SQLiteDialect
 from ..exceptions import UnsupportedDialectError
 
 
@@ -22,6 +23,7 @@ def get_dialect(name: str):
         get_dialect("yugabyte")   → YugabyteDialect
         get_dialect("postgres")   → PostgreSQLDialect
         get_dialect("postgresql") → PostgreSQLDialect
+        get_dialect("sqlite")     → SQLiteDialect
 
     Args:
         name: dialect name string
@@ -35,6 +37,7 @@ def get_dialect(name: str):
         "yugabyte"   : YugabyteDialect,
         "postgres"   : PostgreSQLDialect,
         "postgresql" : PostgreSQLDialect,
+        "sqlite"     : SQLiteDialect,
     }
     if name not in dialects:
         raise UnsupportedDialectError(
@@ -50,5 +53,6 @@ __all__ = [
     "MySQLDialect",
     "YugabyteDialect",
     "PostgreSQLDialect",
+    "SQLiteDialect",
     "get_dialect",
 ]

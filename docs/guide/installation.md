@@ -8,9 +8,12 @@ and come back here when you need the details.
 ## What you need
 
 - **Python 3.9 or newer.** Check with `python --version`.
-- **A database to connect to** — MySQL 8+, PostgreSQL, or YugabyteDB
-  2.x+. mydborm doesn't include a database server; it talks to one
-  you already have running (locally, in Docker, or in the cloud).
+- **A database to connect to** — MySQL 8+, PostgreSQL, YugabyteDB 2.x+,
+  or SQLite. mydborm doesn't include a database server for the first
+  three; it talks to one you already have running (locally, in
+  Docker, or in the cloud). SQLite is the exception — it's built into
+  Python, so there's nothing to install or start; it's the fastest way
+  to try mydborm or write tests without a running server.
 
 If you don't have a database running yet, see
 [Docker quickstart](#docker-quickstart) below — it's the fastest way
@@ -105,10 +108,20 @@ db.configure(
 )
 ```
 
+```python
+# SQLite — no host/port/user/password, just a file path (or ":memory:")
+db.configure(dialect="sqlite", database="app.db")
+
+# In-memory — useful for tests, gone when the connection closes
+db.configure(dialect="sqlite", database=":memory:")
+```
+
 `dialect` is the one option that matters most: it tells mydborm which
 SQL syntax and column types to generate. Everything else
 (`host`/`port`/`user`/`password`/`database`) is the same kind of
-connection info you'd hand to any database client.
+connection info you'd hand to any database client — except for
+SQLite, which only needs `database`, since there's no server to
+connect to.
 
 ### Configuring from an environment variable
 
@@ -125,9 +138,10 @@ db.from_env()
 ```
 
 `db.from_env()` reads `DATABASE_URL`, figures out the dialect from the
-URL scheme (`mysql://`, `postgres://`, `yugabyte://`), and configures
-the connection exactly as if you'd called `db.configure(...)`
-yourself.
+URL scheme (`mysql://`, `postgres://`, `yugabyte://`, `sqlite://`), and
+configures the connection exactly as if you'd called
+`db.configure(...)` yourself. For SQLite, the path portion of the URL
+is the database file — `sqlite:///app.db` or `sqlite:///:memory:`.
 
 ## Next step
 

@@ -107,7 +107,7 @@ def test_from_env_raises_when_not_set():
 def test_unsupported_dialect_raises():
     from mydborm.db import ConnectionManager
     mgr = ConnectionManager()
-    mgr._config = {"dialect": "sqlite", "host": "x", "user": "x",
+    mgr._config = {"dialect": "oracle", "host": "x", "user": "x",
                    "password": "x", "database": "x"}
     with pytest.raises(ValueError, match="Unsupported dialect"):
         mgr._make_connection()  # lines 179-182
@@ -117,11 +117,11 @@ def test_unsupported_dialect_raises_typed_exception():
     from mydborm.db import ConnectionManager
     from mydborm.exceptions import UnsupportedDialectError
     mgr = ConnectionManager()
-    mgr._config = {"dialect": "sqlite", "host": "x", "user": "x",
+    mgr._config = {"dialect": "oracle", "host": "x", "user": "x",
                    "password": "x", "database": "x"}
     with pytest.raises(UnsupportedDialectError) as exc_info:
         mgr._make_connection()
-    assert exc_info.value.dialect == "sqlite"
+    assert exc_info.value.dialect == "oracle"
 
 
 # ------------------------------------------------------------------ #

@@ -37,7 +37,7 @@ from .exceptions import (
     NotConfiguredError, UnsupportedDialectError, SavepointError, RetryExhaustedError,
 )
 
-SUPPORTED_DIALECTS = ("mysql", "yugabyte", "postgres", "postgresql")
+SUPPORTED_DIALECTS = ("mysql", "yugabyte", "postgres", "postgresql", "sqlite")
 
 
 def _parse_url(url: str) -> dict:
@@ -47,9 +47,19 @@ def _parse_url(url: str) -> dict:
     Examples:
         mysql://root:root@localhost:3306/testdb
         yugabyte://yugabyte:yugabyte@localhost:5433/yugabyte
+        sqlite:///path/to/app.db
+        sqlite:///:memory:
     """
     p = urlparse(url)
     scheme = p.scheme.lower()
+
+    if "sqlite" in scheme:
+        # sqlite has no host/port/user/password — the URL path is the
+        # database file path (or ":memory:")
+        return {
+            "dialect":  "sqlite",
+            "database": p.path.lstrip("/") or ":memory:",
+        }
 
     if "yugabyte" in scheme:
         dialect = "yugabyte"
@@ -67,6 +77,55 @@ def _parse_url(url: str) -> dict:
         "password":  p.password or "",
         "database":  p.path.lstrip("/"),
     }
+
+
+class _SQLiteCursorAdapter:
+    """
+    Wraps a stdlib sqlite3.Cursor, translating mydborm's "%s" placeholders
+    (shared with mysql-connector/psycopg2 paramstyle) to sqlite3's "?"
+    (qmark) paramstyle. Every other attribute (description, rowcount,
+    lastrowid, fetchall, fetchone, close) passes through untouched.
+    """
+    def __init__(self, raw):
+        self._raw = raw
+
+    def execute(self, sql, params=None):
+        return self._raw.execute(sql.replace("%s", "?"), params or [])
+
+    def executemany(self, sql, seq_of_params):
+        return self._raw.executemany(sql.replace("%s", "?"), seq_of_params)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
+class _SQLiteConnectionAdapter:
+    """
+    Wraps a stdlib sqlite3.Connection so the rest of mydborm — written
+    against mysql-connector/psycopg2 style connections — can use it
+    unmodified. Handles two divergences from those drivers:
+
+    1. Placeholder style ("%s" vs "?") — via _SQLiteCursorAdapter.
+    2. No settable `.autocommit` attribute pre-3.12 — mapped onto
+       sqlite3's `isolation_level` (None = autocommit, "" = manual
+       transaction), matching the semantics the rest of db.py expects.
+    """
+    def __init__(self, raw):
+        self._raw = raw
+
+    def cursor(self):
+        return _SQLiteCursorAdapter(self._raw.cursor())
+
+    @property
+    def autocommit(self):
+        return self._raw.isolation_level is None
+
+    @autocommit.setter
+    def autocommit(self, value):
+        self._raw.isolation_level = None if value else ""
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
 
 
 class ConnectionManager:
@@ -181,6 +240,13 @@ class ConnectionManager:
                     "Run: pip install psycopg2-binary"
                 )
 
+        elif self.dialect == "sqlite":
+            import sqlite3
+            path = cfg.get("database") or ":memory:"
+            raw  = sqlite3.connect(path, isolation_level=None)
+            raw.execute("PRAGMA foreign_keys = ON")
+            return _SQLiteConnectionAdapter(raw)
+
         else:
             raise UnsupportedDialectError(
                 f"Unsupported dialect: {self.dialect!r}. "
@@ -282,6 +348,12 @@ class ConnectionManager:
                 "AND table_name = %s;",
                 [table]
             )
+        elif dialect == "sqlite":
+            rows = self.fetchall(
+                "SELECT COUNT(*) as cnt FROM sqlite_master "
+                "WHERE type = 'table' AND name = %s;",
+                [table]
+            )
         else:
             rows = self.fetchall(
                 "SELECT COUNT(*) as cnt FROM information_schema.tables "
@@ -302,6 +374,11 @@ class ConnectionManager:
         dialect = self.dialect
         if dialect == "mysql":
             rows = self.fetchall("SHOW TABLES;")
+        elif dialect == "sqlite":
+            rows = self.fetchall(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'table' ORDER BY name;"
+            )
         else:
             rows = self.fetchall(
                 "SELECT table_name FROM information_schema.tables "

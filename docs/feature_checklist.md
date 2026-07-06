@@ -107,7 +107,7 @@ supported.
 - [x] Convert language types to database types — every field maps to the right MySQL/YugabyteDB/PostgreSQL column type automatically
 
 ## Database Independence
-- [~] Support multiple databases — **MySQL, YugabyteDB, PostgreSQL only.** No Oracle, SQL Server, or SQLite.
+- [~] Support multiple databases — **MySQL, YugabyteDB, PostgreSQL, SQLite.** No Oracle or SQL Server. SQLite covers the core dialect + sync CRUD, schema creation, indexes, composite keys, and FK constraints; auto-migrations (ALTER TABLE), async support, and the cross-database migration engine don't support SQLite yet.
 
 ## SQL Dialect Handling
 - [x] Handle database-specific SQL differences — `mydborm/dialects/` (identifier quoting, `AUTO_INCREMENT` vs `SERIAL`, `JSON` vs `JSONB`, etc.)
@@ -267,7 +267,7 @@ supported.
 - [ ] No dedicated seed/fixture-loading helper — use `bulk_create()` yourself
 
 ## Testing Support
-- [ ] No SQLite or in-memory dialect (only MySQL/YugabyteDB/PostgreSQL)
+- [x] SQLite dialect, including `:memory:` — zero-setup CRUD/query-builder testing with no external service
 - [ ] No mocking helpers shipped in the library itself
 - [~] Test transactions — you can wrap test data in `db.transaction()` and roll it back yourself; nothing automated
 
