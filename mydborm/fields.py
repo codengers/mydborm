@@ -83,6 +83,10 @@ class Field:
         if self.primary_key:
             if dialect in ("yugabyte", "postgres"):
                 parts = ["SERIAL PRIMARY KEY"]
+            elif dialect == "sqlite":
+                # AUTOINCREMENT is only valid on a column declared exactly
+                # "INTEGER PRIMARY KEY" (not "INT" or other affinity synonyms).
+                parts = ["INTEGER PRIMARY KEY AUTOINCREMENT"]
             else:
                 parts.append("PRIMARY KEY AUTO_INCREMENT")
         elif not self.nullable:
@@ -262,6 +266,9 @@ class JSONField(Field):
         original = self.sql_type
         if dialect in ("yugabyte", "postgres"):
             self.sql_type = "JSONB"
+        elif dialect == "sqlite":
+            # No native JSON type — TEXT avoids NUMERIC-affinity coercion.
+            self.sql_type = "TEXT"
         result = super().to_sql_def(dialect)
         self.sql_type = original
         return result

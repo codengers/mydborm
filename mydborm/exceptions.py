@@ -349,4 +349,4 @@ class UnsupportedDialectError(MydbormError, ValueError):
                  supported: list = None):
         super().__init__(message, dialect=dialect)
         self.dialect   = dialect
-        self.supported = supported or ["mysql", "yugabyte", "postgres"]
+        self.supported = supported or ["mysql", "yugabyte", "postgres", "sqlite"]

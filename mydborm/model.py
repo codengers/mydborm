@@ -1212,6 +1212,8 @@ class BaseModel(metaclass=ModelMeta):
         """
         if db.dialect in ("yugabyte", "postgres"):
             sql = f'DROP INDEX IF EXISTS "{name}"'
+        elif db.dialect == "sqlite":
+            sql = f"DROP INDEX IF EXISTS `{name}`"
         else:
             sql = f"DROP INDEX `{name}` ON `{cls._table}`"
         with db.connect() as conn:
@@ -1245,6 +1247,21 @@ class BaseModel(metaclass=ModelMeta):
                      "unique": "UNIQUE" in (r[1] or "").upper()}
                     for r in rows
                 ]
+            elif db.dialect == "sqlite":
+                cur.execute(f"PRAGMA index_list(`{cls._table}`)")
+                indexes = []
+                for idx_row in cur.fetchall():
+                    idx_name = idx_row[1]
+                    unique   = bool(idx_row[2])
+                    cur.execute(f"PRAGMA index_info(`{idx_name}`)")
+                    columns  = [info_row[2] for info_row in cur.fetchall()]
+                    indexes.append({
+                        "name"    : idx_name,
+                        "columns" : columns,
+                        "unique"  : unique,
+                        "primary" : idx_name.startswith("sqlite_autoindex_"),
+                    })
+                return indexes
             else:
                 cur.execute(f"SHOW INDEX FROM `{cls._table}`")
                 rows    = cur.fetchall()
@@ -1830,6 +1847,18 @@ class BaseModel(metaclass=ModelMeta):
                             cur.execute(
                                 "ALTER TABLE `" + cls._table +
                                 "` ADD UNIQUE INDEX `" + idx_name +
+                                "` (`" + conflict_key + "`)"
+                            )
+                    elif dialect == "sqlite":
+                        cur.execute(
+                            "SELECT COUNT(*) FROM sqlite_master "
+                            "WHERE type = 'index' AND name = %s",
+                            [idx_name]
+                        )
+                        if cur.fetchone()[0] == 0:
+                            cur.execute(
+                                "CREATE UNIQUE INDEX `" + idx_name +
+                                "` ON `" + cls._table +
                                 "` (`" + conflict_key + "`)"
                             )
                     else:

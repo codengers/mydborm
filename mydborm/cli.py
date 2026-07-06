@@ -49,7 +49,7 @@ def version():
 
 @cli.command()
 def ping(
-    dialect:  str = typer.Option("mysql",     "--dialect",  "-d", help="mysql or yugabyte"),
+    dialect:  str = typer.Option("mysql",     "--dialect",  "-d", help="mysql, yugabyte, postgres, or sqlite"),
     host:     str = typer.Option("127.0.0.1", "--host",     "-h", help="Database host"),
     port:     int = typer.Option(3306,        "--port",     "-p", help="Database port"),
     user:     str = typer.Option("root",      "--user",     "-u", help="Database user"),
@@ -81,6 +81,16 @@ def ping(
                 t.add_row("Version",  row[0])
                 t.add_row("Database", row[1])
                 t.add_row("User",     row[2])
+            elif dialect == "sqlite":
+                cur.execute("SELECT sqlite_version()")
+                row = cur.fetchone()
+                t = Table(box=box.ROUNDED, border_style="green")
+                t.add_column("Property", style="cyan")
+                t.add_column("Value",    style="white")
+                t.add_row("Status",   "[bold green]✔ Connected[/bold green]")
+                t.add_row("Dialect",  dialect)
+                t.add_row("Version",  row[0])
+                t.add_row("Database", database)
             else:
                 cur.execute("SELECT VERSION(), current_database(), current_user")
                 row = cur.fetchone()
@@ -129,6 +139,12 @@ def inspect(
             if dialect == "mysql":
                 cur.execute("SHOW TABLES;")
                 tables = [row[0] for row in cur.fetchall()]
+            elif dialect == "sqlite":
+                cur.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type = 'table' ORDER BY name;"
+                )
+                tables = [row[0] for row in cur.fetchall()]
             else:
                 cur.execute("""
                     SELECT table_name FROM information_schema.tables
@@ -171,6 +187,28 @@ def inspect(
                             str(row[0]), str(row[1]),
                             str(row[2]), str(row[3]),
                             str(row[4]) if row[4] else "-"
+                        )
+                elif dialect == "sqlite":
+                    cur.execute(f"PRAGMA table_info(`{table}`);")
+                    rows = cur.fetchall()
+                    t = Table(
+                        title=f"[bold]{table}[/bold]",
+                        box=box.SIMPLE_HEAVY,
+                        border_style="cyan",
+                        show_lines=True,
+                    )
+                    t.add_column("Column",  style="bold white")
+                    t.add_column("Type",    style="yellow")
+                    t.add_column("Null",    style="dim")
+                    t.add_column("Key",     style="green")
+                    t.add_column("Default", style="dim")
+                    for row in rows:
+                        # PRAGMA table_info: cid, name, type, notnull, dflt_value, pk
+                        t.add_row(
+                            str(row[1]), str(row[2]),
+                            "NO" if row[3] else "YES",
+                            "PRI" if row[5] else "-",
+                            str(row[4]) if row[4] is not None else "-"
                         )
                 else:
                     cur.execute(f"""
@@ -233,6 +271,11 @@ def tables(
 
             if dialect == "mysql":
                 cur.execute("SHOW TABLES;")
+            elif dialect == "sqlite":
+                cur.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type = 'table' ORDER BY name;"
+                )
             else:
                 cur.execute("""
                     SELECT table_name FROM information_schema.tables
