@@ -105,6 +105,11 @@ class TypeMapper:
         "DATE", "TIMESTAMP", "TIMESTAMPTZ", "TIME", "JSONB", "JSON",
     }
 
+    # SQLite tables created by mydborm use MySQL-flavored type strings
+    # (SQLiteDialect inherits MySQLDialect's SQL generation), plus a few
+    # SQLite-native affinity names a hand-written schema might use.
+    _SQLITE_KNOWN = _MYSQL_KNOWN | {"REAL", "BOOLEAN"}
+
     # ------------------------------------------------------------------ #
 
     @staticmethod
@@ -205,12 +210,70 @@ class TypeMapper:
 
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def mysql_to_sqlite(col_type: str) -> str:
+        """
+        Map a MySQL column type string to SQLite. SQLite's dynamic type
+        affinity accepts MySQL type strings unchanged (this is exactly
+        why SQLiteDialect inherits MySQLDialect's SQL generation) — the
+        only real incompatibilities are MySQL-only keywords SQLite's
+        grammar doesn't parse at all (ENUM, SET).
+        """
+        base, args, _ = _parse_sql_type(col_type)
+
+        if base in ("INT", "MEDIUMINT"):
+            return "INTEGER"
+        if base == "ENUM":
+            return "VARCHAR(255)"
+        if base == "SET":
+            return "TEXT"
+        if base in ("TINYTEXT", "MEDIUMTEXT", "LONGTEXT"):
+            return "TEXT"
+        if base in ("TINYBLOB", "MEDIUMBLOB", "LONGBLOB"):
+            return "BLOB"
+        if base in ("DECIMAL", "NUMERIC") and args:
+            return f"{base}({','.join(args)})"
+        if args:
+            return f"{base}({','.join(args)})"
+        return base
+
+    @staticmethod
+    def sqlite_to_mysql(col_type: str) -> str:
+        """Map a SQLite column type string to MySQL."""
+        base, args, _ = _parse_sql_type(col_type)
+
+        if base == "INTEGER":
+            return "INT"
+        if base == "REAL":
+            return "DOUBLE"
+        if base == "BOOLEAN":
+            return "TINYINT(1)"
+        if base in ("DECIMAL", "NUMERIC") and args:
+            return f"{base}({','.join(args)})"
+        if args:
+            return f"{base}({','.join(args)})"
+        return base
+
+    @classmethod
+    def sqlite_to_yugabyte(cls, col_type: str) -> str:
+        """SQLite -> YugabyteDB/PostgreSQL, via the MySQL type vocabulary
+        SQLite tables already use (SQLiteDialect inherits MySQLDialect)."""
+        return cls.mysql_to_yugabyte(cls.sqlite_to_mysql(col_type))
+
+    @classmethod
+    def yugabyte_to_sqlite(cls, col_type: str) -> str:
+        """YugabyteDB/PostgreSQL -> SQLite, via the MySQL type vocabulary."""
+        return cls.mysql_to_sqlite(cls.yugabyte_to_mysql(col_type))
+
+    # ------------------------------------------------------------------ #
+
     @classmethod
     def map(cls, col_type: str, source_dialect: str, target_dialect: str) -> str:
         """
         Map a column type string from one dialect to another.
         Supported pairs: mysql<->yugabyte, mysql<->postgres,
-        yugabyte<->postgres (identity — same type system).
+        yugabyte<->postgres (identity — same type system),
+        mysql<->sqlite, yugabyte/postgres<->sqlite.
         """
         source = _normalize_dialect(source_dialect)
         target = _normalize_dialect(target_dialect)
@@ -223,6 +286,14 @@ class TypeMapper:
             return cls.yugabyte_to_mysql(col_type)
         if source in PG_FAMILY and target in PG_FAMILY:
             return col_type
+        if source == "mysql" and target == "sqlite":
+            return cls.mysql_to_sqlite(col_type)
+        if source == "sqlite" and target == "mysql":
+            return cls.sqlite_to_mysql(col_type)
+        if source == "sqlite" and target in PG_FAMILY:
+            return cls.sqlite_to_yugabyte(col_type)
+        if source in PG_FAMILY and target == "sqlite":
+            return cls.yugabyte_to_sqlite(col_type)
 
         raise UnsupportedDialectError(
             f"No type mapping available from {source_dialect!r} to {target_dialect!r}",
@@ -236,6 +307,8 @@ class TypeMapper:
         source = _normalize_dialect(source_dialect)
         if source == "mysql":
             return base in cls._MYSQL_KNOWN
+        if source == "sqlite":
+            return base in cls._SQLITE_KNOWN
         return _PG_ALIASES.get(base, base) in cls._PG_KNOWN
 
 
@@ -284,6 +357,8 @@ class SchemaExtractor:
     def extract_table(self, table: str) -> dict:
         if self.dialect == "mysql":
             return self._extract_mysql(table)
+        if self.dialect == "sqlite":
+            return self._extract_sqlite(table)
         return self._extract_postgres(table)
 
     def extract_schema(self, tables: Optional[list] = None) -> dict:
@@ -354,6 +429,59 @@ class SchemaExtractor:
             "columns":      columns,
             "primary_key":  primary_key,
             "indexes":      list(indexes.values()),
+            "foreign_keys": foreign_keys,
+        }
+
+    # ---- SQLite ---- #
+
+    def _extract_sqlite(self, table: str) -> dict:
+        columns_rows = self.db.fetchall(f"PRAGMA table_info(`{table}`);")
+
+        columns = []
+        pk_positions = []
+        for row in columns_rows:
+            is_pk = bool(row["pk"])
+            columns.append({
+                "name":           row["name"],
+                "type":           row["type"],
+                "nullable":       not bool(row["notnull"]),
+                "default":        row["dflt_value"],
+                "is_primary_key": is_pk,
+            })
+            if is_pk:
+                # PRAGMA table_info's "pk" is the column's 1-based position
+                # within a composite PRIMARY KEY — sort by it so a composite
+                # key's column order matches the table definition.
+                pk_positions.append((row["pk"], row["name"]))
+        primary_key = [name for _, name in sorted(pk_positions)]
+
+        indexes = []
+        for idx_row in self.db.fetchall(f"PRAGMA index_list(`{table}`);"):
+            if idx_row["origin"] == "pk":
+                continue  # auto-index backing PRIMARY KEY — already captured above
+            idx_name  = idx_row["name"]
+            info_rows = self.db.fetchall(f"PRAGMA index_info(`{idx_name}`);")
+            cols = [r["name"] for r in sorted(info_rows, key=lambda r: r["seqno"])]
+            indexes.append({
+                "name":    idx_name,
+                "columns": cols,
+                "unique":  bool(idx_row["unique"]),
+            })
+
+        foreign_keys = [
+            {
+                "column":     r["from"],
+                "ref_table":  r["table"],
+                "ref_column": r["to"],
+            }
+            for r in self.db.fetchall(f"PRAGMA foreign_key_list(`{table}`);")
+        ]
+
+        return {
+            "table":        table,
+            "columns":      columns,
+            "primary_key":  primary_key,
+            "indexes":      indexes,
             "foreign_keys": foreign_keys,
         }
 
@@ -529,10 +657,11 @@ class DDLGenerator:
         unique = "UNIQUE " if index.get("unique") else ""
         cols = ", ".join(_quote(c, self.target_dialect) for c in index["columns"])
 
-        # Postgres-family index names are unique per-schema (not per-table)
-        # — namespace with the table name to avoid collisions across tables.
+        # Index names are unique database-wide (not per-table) on every
+        # dialect except MySQL — namespace with the table name to avoid
+        # collisions across tables.
         idx_name = index["name"]
-        if self.target_dialect in PG_FAMILY and not idx_name.startswith(f"{table}_"):
+        if self.target_dialect != "mysql" and not idx_name.startswith(f"{table}_"):
             idx_name = f"{table}_{idx_name}"[:63]
 
         if self.target_dialect == "mysql":
@@ -606,7 +735,7 @@ class DataTransfer:
             src_type = (col.get("type") or "").lower()
             is_bool_source = src_type.startswith("tinyint(1)") or src_type == "bit(1)"
 
-            if is_bool_source and target_dialect in PG_FAMILY:
+            if is_bool_source and target_dialect in PG_FAMILY + ("sqlite",):
                 if isinstance(v, bytes):
                     v = bool(v[0]) if len(v) else False
                 elif isinstance(v, int):
