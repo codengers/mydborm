@@ -33,7 +33,7 @@ dependencies = [
 [project.optional-dependencies]
 cli = ["typer>=0.9", "rich>=13.0"]
 ui  = ["streamlit>=1.30"]
-async = ["aiomysql>=0.3", "aiopg>=1.4"]
+async = ["aiomysql>=0.3", "aiopg>=1.4", "aiosqlite>=0.19"]
 dev   = [
   "pytest>=7",
   "pytest-cov",

@@ -107,7 +107,7 @@ supported.
 - [x] Convert language types to database types — every field maps to the right MySQL/YugabyteDB/PostgreSQL column type automatically
 
 ## Database Independence
-- [~] Support multiple databases — **MySQL, YugabyteDB, PostgreSQL, SQLite.** No Oracle or SQL Server. SQLite covers the core dialect + sync CRUD, schema creation, indexes, composite keys, and FK constraints; auto-migrations (ALTER TABLE), async support, and the cross-database migration engine don't support SQLite yet.
+- [~] Support multiple databases — **MySQL, YugabyteDB, PostgreSQL, SQLite.** No Oracle or SQL Server. SQLite covers the core dialect, sync + async CRUD, schema creation, indexes, composite keys, FK constraints, and auto-migrations (ALTER TABLE); the cross-database migration engine (`migrate.py`) doesn't support SQLite yet.
 
 ## SQL Dialect Handling
 - [x] Handle database-specific SQL differences — `mydborm/dialects/` (identifier quoting, `AUTO_INCREMENT` vs `SERIAL`, `JSON` vs `JSONB`, etc.)
@@ -272,9 +272,9 @@ supported.
 - [~] Test transactions — you can wrap test data in `db.transaction()` and roll it back yourself; nothing automated
 
 ## Asynchronous Database Operations
-- [x] Async queries — `AsyncBaseModel`, full async CRUD
+- [x] Async queries — `AsyncBaseModel`, full async CRUD (MySQL, YugabyteDB/PostgreSQL, SQLite)
 - [ ] Async transactions — no `async def transaction()`/`savepoint()` equivalent exists
-- [x] Non-blocking database calls — real `aiomysql`/`aiopg` connection pools
+- [x] Non-blocking database calls — real `aiomysql`/`aiopg` connection pools; SQLite via `aiosqlite` uses a single serialized connection (no true pool — SQLite has one writer anyway)
 
 ## Monitoring Integration
 - [ ] No metrics hooks (Prometheus, StatsD, or otherwise)

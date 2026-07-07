@@ -17,8 +17,8 @@ if not, the short version is that `await` marks a point where your code can
 pause and let other tasks run until the thing being awaited is ready.
 
 Installing the `async` extra (`pip install mydborm[async]`) pulls in
-`aiomysql` and `aiopg`, the underlying async database drivers mydborm uses
-for MySQL and YugabyteDB/PostgreSQL respectively.
+`aiomysql`, `aiopg`, and `aiosqlite` — the underlying async database drivers
+mydborm uses for MySQL, YugabyteDB/PostgreSQL, and SQLite respectively.
 
 ## Configure
 
@@ -89,3 +89,20 @@ await async_db.configure(
 
 Everything else — `AsyncUser.create()`, `.get()`, `.all()`, and so on —
 works identically regardless of which dialect you configured.
+
+## SQLite async
+
+SQLite works the same way too — only `database` is needed, since there's no
+host/port/user/password:
+
+```python
+await async_db.configure(dialect="sqlite", database="app.db")
+# or in-memory:
+await async_db.configure(dialect="sqlite", database=":memory:")
+```
+
+One difference under the hood: `aiomysql`/`aiopg` give you a real
+multi-connection pool, but `aiosqlite` doesn't — mydborm keeps a single
+SQLite connection open and serializes access to it with a lock. This is
+rarely a practical limitation since SQLite only supports one writer at a
+time regardless of driver.
