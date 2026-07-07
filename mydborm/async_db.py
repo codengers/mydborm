@@ -6,9 +6,9 @@
 # Version     : 0.4.0
 # License     : MIT
 # Description : Async connection manager and AsyncBaseModel for mydborm.
-#               Supports MySQL via aiomysql and YugabyteDB via aiopg.
-#               Provides async CRUD, query builder, and raw SQL.
-#               Usage: await AsyncUser.all()
+#               Supports MySQL via aiomysql, YugabyteDB via aiopg, and
+#               SQLite via aiosqlite. Provides async CRUD, query builder,
+#               and raw SQL. Usage: await AsyncUser.all()
 # =============================================================================
 
 import asyncio
@@ -17,6 +17,96 @@ from typing import Optional
 
 from .fields import Field
 from .exceptions import NotConfiguredError, UnsupportedDialectError
+
+
+# ------------------------------------------------------------------ #
+#  SQLite async adapters (aiosqlite has no built-in connection pool,   #
+#  and — like sync sqlite3 — needs "?" placeholders, not "%s")         #
+# ------------------------------------------------------------------ #
+
+class _AsyncSQLiteCursorAdapter:
+    """Wraps an aiosqlite.Cursor, translating "%s" placeholders to "?"."""
+    def __init__(self, raw):
+        self._raw = raw
+
+    async def execute(self, sql, params=None):
+        return await self._raw.execute(sql.replace("%s", "?"), params or [])
+
+    async def executemany(self, sql, seq_of_params):
+        return await self._raw.executemany(sql.replace("%s", "?"), seq_of_params)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
+class _AsyncSQLiteCursorCM:
+    """
+    Returned by _AsyncSQLiteConnectionAdapter.cursor(). mydborm only ever
+    uses `async with conn.cursor() as cur:` (never a bare `await
+    conn.cursor()`), so this only needs to support that one pattern —
+    unlike aiomysql/aiopg's cursor(), which is also directly awaitable.
+    """
+    def __init__(self, raw_conn):
+        self._raw_conn = raw_conn
+        self._cur = None
+
+    async def __aenter__(self):
+        self._cur = await self._raw_conn.cursor()
+        return _AsyncSQLiteCursorAdapter(self._cur)
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self._cur.close()
+
+
+class _AsyncSQLiteConnectionAdapter:
+    """Wraps an aiosqlite.Connection so the "%s" placeholder translation
+    is transparent to the rest of async_db.py."""
+    def __init__(self, raw):
+        self._raw = raw
+
+    def cursor(self):
+        return _AsyncSQLiteCursorCM(self._raw)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
+class _AsyncSQLitePool:
+    """
+    Minimal stand-in for aiomysql/aiopg's connection pool. SQLite has no
+    real concept of a multi-connection pool for a single file — this
+    keeps one aiosqlite connection alive and serializes access to it
+    with a lock, so concurrent coroutines don't interleave statements
+    within another coroutine's connect()-block.
+    """
+    def __init__(self, path: str):
+        self._path   = path
+        self._conn   = None
+        self._lock   = asyncio.Lock()
+        self._closed_conn = None
+
+    async def _ensure_conn(self):
+        if self._conn is None:
+            import aiosqlite
+            self._conn = await aiosqlite.connect(self._path)
+            await self._conn.execute("PRAGMA foreign_keys = ON")
+        return self._conn
+
+    @asynccontextmanager
+    async def acquire(self):
+        async with self._lock:
+            conn = await self._ensure_conn()
+            yield _AsyncSQLiteConnectionAdapter(conn)
+
+    def close(self):
+        """Sync, matching aiomysql/aiopg pool.close() — marks for closing."""
+        self._closed_conn = self._conn
+        self._conn = None
+
+    async def wait_closed(self):
+        if self._closed_conn is not None:
+            await self._closed_conn.close()
+            self._closed_conn = None
 
 
 # ------------------------------------------------------------------ #
@@ -50,7 +140,9 @@ class AsyncConnectionManager:
     async def configure(self, **kwargs):
         """Configure and initialise the connection pool."""
         if "dialect" not in kwargs:
-            raise UnsupportedDialectError("dialect is required: 'mysql' or 'yugabyte'")
+            raise UnsupportedDialectError(
+                "dialect is required: 'mysql', 'yugabyte', or 'sqlite'"
+            )
         self._config = kwargs
         await self._create_pool()
 
@@ -97,10 +189,23 @@ class AsyncConnectionManager:
                     "aiopg is not installed.\n"
                     "Run: pip install mydborm[async]"
                 )
+
+        elif dialect == "sqlite":
+            try:
+                import aiosqlite  # noqa: F401 — imported here to fail fast if missing
+            except ImportError:
+                raise ImportError(
+                    "aiosqlite is not installed.\n"
+                    "Run: pip install mydborm[async]"
+                )
+            path = cfg.get("database") or ":memory:"
+            self._pool = _AsyncSQLitePool(path)
+            await self._pool._ensure_conn()
+
         else:
             raise UnsupportedDialectError(
                 "Unsupported dialect: " + repr(dialect) +
-                ". Choose 'mysql' or 'yugabyte'.",
+                ". Choose 'mysql', 'yugabyte', or 'sqlite'.",
                 dialect=dialect,
             )
 
@@ -241,7 +346,7 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
         col_defs      = []
         col_separator = ",\n"
         for fname, field in cls._fields.items():
-            col_defs.append("  " + fname + " " + field.to_sql_def())
+            col_defs.append("  " + fname + " " + field.to_sql_def(async_db.dialect))
         sql = (
             "CREATE TABLE " + exist + cls._table +
             " (\n" + col_separator.join(col_defs) + "\n);"
