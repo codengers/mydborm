@@ -153,7 +153,7 @@ def test_map_postgres_to_yugabyte_is_identity():
 def test_map_unsupported_pair_raises():
     from mydborm.exceptions import UnsupportedDialectError
     with pytest.raises(UnsupportedDialectError):
-        TypeMapper.map("int", "mysql", "sqlite")
+        TypeMapper.map("int", "mysql", "oracle")
 
 
 def test_is_known_type_true_for_mapped():

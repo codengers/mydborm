@@ -21,6 +21,19 @@ Supported source → target pairs:
 - MySQL → YugabyteDB / PostgreSQL
 - YugabyteDB / PostgreSQL → MySQL
 - YugabyteDB ↔ PostgreSQL (same type system — no mapping needed)
+- MySQL ↔ SQLite
+- YugabyteDB / PostgreSQL ↔ SQLite
+
+For a SQLite source or target, only `dialect` and `database` (a file path
+or `":memory:"`) are needed — no host/port/user/password:
+
+```python
+engine = MigrationEngine(
+    source={"dialect": "mysql", "host": "127.0.0.1", "port": 3306,
+            "user": "root", "password": "<password>", "database": "shop"},
+    target={"dialect": "sqlite", "database": "shop.db"},
+)
+```
 
 ## Python API
 

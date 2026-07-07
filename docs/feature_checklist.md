@@ -107,7 +107,7 @@ supported.
 - [x] Convert language types to database types — every field maps to the right MySQL/YugabyteDB/PostgreSQL column type automatically
 
 ## Database Independence
-- [~] Support multiple databases — **MySQL, YugabyteDB, PostgreSQL, SQLite.** No Oracle or SQL Server. SQLite covers the core dialect, sync + async CRUD, schema creation, indexes, composite keys, FK constraints, and auto-migrations (ALTER TABLE); the cross-database migration engine (`migrate.py`) doesn't support SQLite yet.
+- [x] Support multiple databases — **MySQL, YugabyteDB, PostgreSQL, SQLite.** No Oracle or SQL Server. SQLite now has full parity with the other three: core dialect, sync + async CRUD, schema creation, indexes, composite keys, FK constraints, auto-migrations (ALTER TABLE), and the cross-database migration engine (`migrate.py` — SQLite can be a source or target for schema+data copies to/from MySQL/YugabyteDB/PostgreSQL).
 
 ## SQL Dialect Handling
 - [x] Handle database-specific SQL differences — `mydborm/dialects/` (identifier quoting, `AUTO_INCREMENT` vs `SERIAL`, `JSON` vs `JSONB`, etc.)
