@@ -12,11 +12,19 @@
 # =============================================================================
 
 import asyncio
+import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from .fields import Field
 from .exceptions import NotConfiguredError, UnsupportedDialectError
+
+_SQL_LOGGER = logging.getLogger("mydborm.sql")
+
+# Same cap as the sync side (db.py) — bounds memory for long-running
+# processes that leave echo=True on.
+_MAX_TRACKED_QUERIES = 1000
 
 
 # ------------------------------------------------------------------ #
@@ -110,6 +118,77 @@ class _AsyncSQLitePool:
 
 
 # ------------------------------------------------------------------ #
+#  Query logging adapters (mirrors db.py's sync versions)              #
+# ------------------------------------------------------------------ #
+
+class _AsyncQueryLogCursor:
+    """Wraps any async cursor to time and log each execute()/executemany()."""
+    def __init__(self, raw, manager):
+        self._raw = raw
+        self._manager = manager
+
+    def _record(self, sql, params, duration_ms):
+        _SQL_LOGGER.debug("%s | params=%r | %.2fms", sql, params, duration_ms)
+        queries = self._manager.queries
+        queries.append({"sql": sql, "params": params, "duration_ms": duration_ms})
+        del queries[:-_MAX_TRACKED_QUERIES]
+
+    async def execute(self, sql, params=None):
+        start = time.perf_counter()
+        try:
+            return await self._raw.execute(sql, params or [])
+        finally:
+            self._record(sql, params, (time.perf_counter() - start) * 1000)
+
+    async def executemany(self, sql, seq_of_params):
+        start = time.perf_counter()
+        try:
+            return await self._raw.executemany(sql, seq_of_params)
+        finally:
+            duration_ms = (time.perf_counter() - start) * 1000
+            rows = len(seq_of_params) if hasattr(seq_of_params, "__len__") else "?"
+            self._record(sql, f"<{rows} rows>", duration_ms)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
+class _AsyncQueryLogCursorCM:
+    """
+    Returned by _AsyncQueryLogConnection.cursor(). Every underlying async
+    connection (aiomysql, aiopg, or the sqlite adapter above) supports
+    `async with raw_conn.cursor() as cur:` — this drives that same
+    protocol manually so it can wrap whatever cursor comes out the other
+    end in a _AsyncQueryLogCursor.
+    """
+    def __init__(self, raw_conn, manager):
+        self._raw_conn = raw_conn
+        self._manager = manager
+        self._cm = None
+
+    async def __aenter__(self):
+        self._cm = self._raw_conn.cursor()
+        real_cur = await self._cm.__aenter__()
+        return _AsyncQueryLogCursor(real_cur, self._manager)
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return await self._cm.__aexit__(exc_type, exc, tb)
+
+
+class _AsyncQueryLogConnection:
+    """Wraps a connection so every cursor it hands out is a _AsyncQueryLogCursor."""
+    def __init__(self, raw, manager):
+        self._raw = raw
+        self._manager = manager
+
+    def cursor(self):
+        return _AsyncQueryLogCursorCM(self._raw, self._manager)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
+# ------------------------------------------------------------------ #
 #  Async Connection Manager                                            #
 # ------------------------------------------------------------------ #
 
@@ -132,19 +211,33 @@ class AsyncConnectionManager:
     def __init__(self):
         self._config  = {}
         self._pool    = None
+        self._log_queries = False
+        self.queries: list = []
 
     # ------------------------------------------------------------------ #
     #  Configuration                                                       #
     # ------------------------------------------------------------------ #
 
     async def configure(self, **kwargs):
-        """Configure and initialise the connection pool."""
+        """
+        Configure and initialise the connection pool.
+
+        Keyword Args include everything db.configure() accepts, plus:
+            echo (bool): log every executed SQL statement (with params and
+                duration) via the "mydborm.sql" logger, and record it in
+                .queries — default False
+        """
         if "dialect" not in kwargs:
             raise UnsupportedDialectError(
                 "dialect is required: 'mysql', 'yugabyte', or 'sqlite'"
             )
+        self._log_queries = kwargs.pop("echo", False)
         self._config = kwargs
         await self._create_pool()
+
+    def clear_queries(self):
+        """Empty the .queries log (has no effect on whether echo is on)."""
+        self.queries.clear()
 
     async def _create_pool(self):
         """Create the underlying async connection pool."""
@@ -232,6 +325,8 @@ class AsyncConnectionManager:
                 "Call: await async_db.configure(...) first."
             )
         async with self._pool.acquire() as conn:
+            if self._log_queries:
+                conn = _AsyncQueryLogConnection(conn, self)
             try:
                 yield conn
                 await conn.commit()

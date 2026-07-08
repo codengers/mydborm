@@ -54,6 +54,7 @@ nav:
     - Validators: guide/validators.md
     - Security: guide/security.md
     - Async: guide/async.md
+    - Query Logging: guide/logging.md
     - CLI: guide/cli.md
     - Exceptions: guide/exceptions.md
   - API Reference:

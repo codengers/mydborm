@@ -28,8 +28,10 @@ db.py — Cross-platform connection manager for mydborm.
 Supports MySQL and YugabyteDB (via PostgreSQL wire protocol).
 """
 
+import logging
 import os
 import threading
+import time
 from contextlib import contextmanager
 from urllib.parse import urlparse
 
@@ -128,6 +130,65 @@ class _SQLiteConnectionAdapter:
         return getattr(self._raw, name)
 
 
+_SQL_LOGGER = logging.getLogger("mydborm.sql")
+
+# Cap on ConnectionManager.queries — bounds memory for long-running
+# processes that leave echo=True on, matching Django's connection.queries
+# in spirit but without unbounded growth.
+_MAX_TRACKED_QUERIES = 1000
+
+
+class _QueryLogCursor:
+    """
+    Wraps any cursor (mysql-connector, psycopg2, or the sqlite adapter
+    above) to time and log each execute()/executemany() call. Sits
+    *outside* the sqlite %s->? translation layer, so the SQL text logged
+    here is always the original "%s"-style string, consistent across
+    every dialect.
+    """
+    def __init__(self, raw, manager):
+        self._raw = raw
+        self._manager = manager
+
+    def _record(self, sql, params, duration_ms):
+        _SQL_LOGGER.debug("%s | params=%r | %.2fms", sql, params, duration_ms)
+        queries = self._manager.queries
+        queries.append({"sql": sql, "params": params, "duration_ms": duration_ms})
+        del queries[:-_MAX_TRACKED_QUERIES]
+
+    def execute(self, sql, params=None):
+        start = time.perf_counter()
+        try:
+            return self._raw.execute(sql, params or [])
+        finally:
+            self._record(sql, params, (time.perf_counter() - start) * 1000)
+
+    def executemany(self, sql, seq_of_params):
+        start = time.perf_counter()
+        try:
+            return self._raw.executemany(sql, seq_of_params)
+        finally:
+            duration_ms = (time.perf_counter() - start) * 1000
+            rows = len(seq_of_params) if hasattr(seq_of_params, "__len__") else "?"
+            self._record(sql, f"<{rows} rows>", duration_ms)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
+class _QueryLogConnection:
+    """Wraps a connection so every cursor it hands out is a _QueryLogCursor."""
+    def __init__(self, raw, manager):
+        self._raw = raw
+        self._manager = manager
+
+    def cursor(self):
+        return _QueryLogCursor(self._raw.cursor(), self._manager)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
 class ConnectionManager:
     """
     Central connection manager.
@@ -149,6 +210,8 @@ class ConnectionManager:
     def __init__(self):
         self._config:   dict = {}
         self._encoding: str  = "utf-8"
+        self._log_queries: bool = False
+        self.queries: list = []
         # Per-instance thread-local connection storage — lets multiple
         # ConnectionManager instances (e.g. migration source + target)
         # hold independent connections within the same thread.
@@ -171,6 +234,9 @@ class ConnectionManager:
             database (str): database name
             charset (str): character set (default utf8mb4 for MySQL)
             encoding (str): python encoding (default utf-8)
+            echo (bool): log every executed SQL statement (with params and
+                duration) via the "mydborm.sql" logger, and record it in
+                .queries — default False
         """
         if "dialect" not in kwargs:
             raise UnsupportedDialectError(
@@ -178,8 +244,9 @@ class ConnectionManager:
                 f"Choose from: {SUPPORTED_DIALECTS}"
             )
         # Store Python encoding separately — not passed to driver
-        self._encoding = kwargs.pop("encoding", "utf-8")
-        self._config   = kwargs
+        self._encoding    = kwargs.pop("encoding", "utf-8")
+        self._log_queries = kwargs.pop("echo", False)
+        self._config      = kwargs
 
     def from_env(self, var: str = "DATABASE_URL"):
         """
@@ -279,12 +346,18 @@ class ConnectionManager:
             self._local.conn = self._make_connection()
 
         conn = self._local.conn
+        if self._log_queries:
+            conn = _QueryLogConnection(conn, self)
         try:
             yield conn
             conn.commit()
         except Exception:
             conn.rollback()
             raise
+
+    def clear_queries(self):
+        """Empty the .queries log (has no effect on whether echo is on)."""
+        self.queries.clear()
 
     def close(self):
         """Close the current thread's connection."""
@@ -445,7 +518,10 @@ class ConnectionManager:
                 "Call db.configure(...) or db.from_env() first."
             )
         if getattr(self._local, "conn", None):
-            cur = self._local.conn.cursor()
+            conn = self._local.conn
+            if self._log_queries:
+                conn = _QueryLogConnection(conn, self)
+            cur = conn.cursor()
             cur.execute(sql, params or [])
             return cur.rowcount
         with self.connect() as conn:
