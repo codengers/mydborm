@@ -232,12 +232,12 @@ supported.
 - [~] Transaction-level retry — see Concurrency Handling above; exists but doesn't work for the common case
 
 ## Logging
-- [ ] Query logging — no `logging` module usage anywhere in the package, only scattered `print()` statements (e.g. `"[mydborm] Table ready."`)
+- [x] Query logging — `db.configure(..., echo=True)` / `await async_db.configure(..., echo=True)` logs every executed statement (SQL, params, duration) via the standard `logging.getLogger("mydborm.sql")` logger, plus an in-memory `db.queries` list (Django-`connection.queries`-style) capped at 1000 entries
 - [ ] Error logging
-- [ ] Performance logging
+- [x] Performance logging — per-query duration in ms is included in both the log record and `db.queries`
 
 ## Debugging Support
-- [~] Show generated SQL — `QueryBuilder.__repr__()` shows the built SQL + params, but there's no dedicated debug/echo mode you can flip on
+- [x] Show generated SQL — `QueryBuilder.__repr__()` for ad-hoc inspection, plus the `echo=True` logger/`.queries` for a full session trace
 - [ ] Explain query plans — not implemented
 
 ## Security Features
