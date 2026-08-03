@@ -95,18 +95,23 @@ A **deadlock** happens when two transactions are each waiting on a lock
 the other one holds, and the database has to pick one to fail so the other
 can proceed. This is a normal, expected occurrence under concurrent load —
 not a bug in your code — and the usual fix is simply to retry the whole
-transaction. `db.transaction_with_retry()` does this automatically: if the
-transaction fails because of a deadlock (or a lock wait timeout), it
-retries up to `retries` times, waiting a little longer between each
-attempt. Any other kind of error is raised immediately, without retrying:
+transaction. `db.transaction_with_retry(fn)` does this automatically: it
+runs `fn(conn)` inside a transaction, and if it fails because of a
+deadlock (or a lock wait timeout), retries the whole transaction up to
+`retries` times, waiting a little longer between each attempt. Any other
+kind of error is raised immediately, without retrying:
 
 ```python
-with db.transaction_with_retry(retries=3):
+def transfer(conn):
     db.execute("UPDATE accounts SET balance = balance - 100 ...")
     db.execute("UPDATE accounts SET balance = balance + 100 ...")
+
+db.transaction_with_retry(transfer, retries=3)
 ```
 
 This example — moving money from one account to another — is a classic
 case for both a transaction (you never want only one side of the transfer
 to happen) and retry-on-deadlock (two transfers touching the same accounts
-at the same time are likely to collide).
+at the same time are likely to collide). Since `transfer` may run more
+than once if a deadlock hits, keep it free of side effects outside the
+transaction (no logging to an external system, no non-idempotent calls).

@@ -188,7 +188,7 @@ supported.
 - [ ] Row locking / `SELECT ... FOR UPDATE` — not implemented
 
 ## Concurrency Handling
-- [~] `db.transaction_with_retry()` exists to retry on a detected deadlock, **but it's broken for the realistic case**: when the deadlock-shaped error comes from your own statements inside its `with` block, retrying would require yielding twice from the same `@contextmanager` generator, which Python's `contextlib` forbids — you get `RuntimeError: generator didn't stop after throw()` instead of a clean retry. (Found and documented this session; a manual retry loop around plain `db.transaction()` works correctly as a workaround — see `docs/guide/exceptions.md`.)
+- [x] `db.transaction_with_retry(fn, retries=3, retry_delay=0.5)` retries a deadlocked transaction. Previously implemented as a single-`yield` `@contextmanager`, so retrying a deadlock raised by the caller's own statements inside the `with` block required yielding twice from the same generator — Python's `contextlib` forbids that and raised `RuntimeError: generator didn't stop after throw()` instead of retrying. Fixed by changing the API to a plain function that takes the transaction body as a callable (`fn(conn)`) and re-invokes it from scratch on each attempt. A second, independent bug found alongside it: `RetryExhaustedError` was dead code — every loop iteration either continued, returned, or did a bare `raise` of the original exception, so the "give up and raise `RetryExhaustedError`" path could never be reached; also fixed. See `docs/guide/exceptions.md` and `tests/test_transactions.py`.
 
 ## Stored Procedure Support
 - [ ] Not implemented
@@ -229,7 +229,7 @@ supported.
 
 ## Automatic Retry Handling
 - [x] Bulk operations — `chunked_bulk_*` functions retry a failed chunk with exponential backoff
-- [~] Transaction-level retry — see Concurrency Handling above; exists but doesn't work for the common case
+- [x] Transaction-level retry — `db.transaction_with_retry()`, see Concurrency Handling above
 
 ## Logging
 - [x] Query logging — `db.configure(..., echo=True)` / `await async_db.configure(..., echo=True)` logs every executed statement (SQL, params, duration) via the standard `logging.getLogger("mydborm.sql")` logger, plus an in-memory `db.queries` list (Django-`connection.queries`-style) capped at 1000 entries
@@ -285,8 +285,8 @@ supported.
 
 | | Count |
 |---|---|
-| Fully supported (`[x]`) | 106 |
-| Partial / has caveats (`[~]`) | 13 |
+| Fully supported (`[x]`) | 108 |
+| Partial / has caveats (`[~]`) | 11 |
 | Not supported (`[ ]`) | 29 |
 
 **What mydborm is genuinely strong at:** declarative models, CRUD, the
@@ -297,11 +297,9 @@ fields, lifecycle hooks, mixins (soft delete/audit/timestamps), real
 ORM — a real database-to-database migration engine.
 
 **Where it's thin, if you're evaluating it for production use:** no
-cascading deletes (`ON DELETE`/`ON UPDATE` actions aren't generated for
-foreign keys), no caching layer, no locking (optimistic or pessimistic),
-no stored procedures or views, no sharding/multi-tenancy/read-write-
-splitting, minimal logging, and the deadlock-retry feature doesn't
-actually work for the case most people would reach for it. None of these
-are silent landmines, though — most either fail clearly
-(`NotImplementedError`-shaped absence) or are now documented in
+caching layer, no locking (optimistic or pessimistic), no stored
+procedures or views, no sharding/multi-tenancy/read-write-splitting, and
+error-level logging is still missing (query/performance logging is
+covered). None of these are silent landmines, though — most either fail
+clearly (`NotImplementedError`-shaped absence) or are now documented in
 `docs/guide/exceptions.md`.

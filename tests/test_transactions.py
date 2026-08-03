@@ -292,23 +292,69 @@ def test_nested_transaction_without_outer():
 # ------------------------------------------------------------------ #
 
 def test_transaction_with_retry_success():
-    with db.transaction_with_retry(retries=3):
+    def do_insert(conn):
         db.execute(
             "INSERT INTO tx_accounts (name, balance) VALUES (%s,%s)",
             ["retry_user", 100]
         )
+
+    db.transaction_with_retry(do_insert, retries=3)
     assert Account.exists(name="retry_user") is True
 
 
 def test_transaction_with_retry_raises_on_non_deadlock():
     """Non-deadlock errors should propagate without retry."""
+    def do_fail(conn):
+        raise ValueError("not a deadlock")
+
     raised = False
     try:
-        with db.transaction_with_retry(retries=2):
-            raise ValueError("not a deadlock")
+        db.transaction_with_retry(do_fail, retries=2)
     except ValueError as e:
         raised = True
         assert str(e) == "not a deadlock"
     except Exception:
         raised = True
     assert raised is True
+
+
+def test_transaction_with_retry_recovers_from_deadlock_in_body():
+    """
+    Regression test: previously transaction_with_retry was a single-yield
+    @contextmanager, so retrying an error raised by the caller's own
+    statements (the realistic deadlock case) required yielding a second
+    time from the same generator — contextlib forbids that and raised
+    RuntimeError("generator didn't stop after throw()") instead of
+    retrying. fn(conn) is a plain callable now, so it's re-invoked from
+    scratch on each attempt.
+    """
+    attempts = []
+
+    def do_transfer(conn):
+        attempts.append(1)
+        db.execute(
+            "INSERT INTO tx_accounts (name, balance) VALUES (%s,%s)",
+            ["deadlock_user", 100]
+        )
+        if len(attempts) < 3:
+            raise RuntimeError(
+                "Deadlock found when trying to get lock; try restarting transaction"
+            )
+
+    db.transaction_with_retry(do_transfer, retries=3, retry_delay=0.01)
+
+    assert len(attempts) == 3
+    assert Account.count(name="deadlock_user") == 1
+
+
+def test_transaction_with_retry_exhausted_raises_retry_exhausted_error():
+    def always_deadlocks(conn):
+        raise RuntimeError(
+            "Deadlock found when trying to get lock; try restarting transaction"
+        )
+
+    with pytest.raises(RetryExhaustedError) as exc_info:
+        db.transaction_with_retry(always_deadlocks, retries=2, retry_delay=0.01)
+
+    assert exc_info.value.attempts == 3
+    assert isinstance(exc_info.value.last_error, RuntimeError)
