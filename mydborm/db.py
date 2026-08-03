@@ -720,12 +720,28 @@ class ConnectionManager:
     #  Transaction with retry                                              #
     # ------------------------------------------------------------------ #
 
-    @contextmanager
-    def transaction_with_retry(self, retries: int = 3,
+    def transaction_with_retry(self, fn, retries: int = 3,
                                 retry_delay: float = 0.5):
         """
-        Transaction that retries on deadlock with exponential backoff.
-        Non-deadlock exceptions are raised immediately without retry.
+        Run fn(conn) inside a transaction, retrying the whole transaction
+        on deadlock with exponential backoff. Non-deadlock exceptions are
+        raised immediately without retry.
+
+        fn is called again from scratch on each retry, so it must be safe
+        to re-run (no side effects outside the transaction).
+
+        Usage:
+            def transfer(conn):
+                db.execute(
+                    "UPDATE accounts SET balance = balance - %s WHERE id = %s",
+                    [100, 1],
+                )
+                db.execute(
+                    "UPDATE accounts SET balance = balance + %s WHERE id = %s",
+                    [100, 2],
+                )
+
+            db.transaction_with_retry(transfer, retries=3, retry_delay=0.5)
         """
         import time
 
@@ -736,11 +752,7 @@ class ConnectionManager:
             self.close()  # fresh connection each attempt
             try:
                 with self.transaction() as conn:
-                    yield conn
-                return  # committed successfully
-
-            except GeneratorExit:
-                return
+                    return fn(conn)  # committed successfully
 
             except Exception as e:
                 last_error  = e
@@ -751,15 +763,16 @@ class ConnectionManager:
                     "1213"              in err_str or
                     "1205"              in err_str
                 )
-                if is_deadlock and attempt < retries:
+                if not is_deadlock:
+                    raise
+                if attempt < retries:
                     time.sleep(retry_delay * (2 ** attempt))
                     continue
-                raise
-        raise RetryExhaustedError(
-            f"Transaction failed after {retries + 1} attempts",
-            attempts   = retries + 1,
-            last_error = last_error,
-        )
+                raise RetryExhaustedError(
+                    f"Transaction failed after {retries + 1} attempts",
+                    attempts   = retries + 1,
+                    last_error = last_error,
+                ) from e
 
     def __repr__(self):
         if not self._config:

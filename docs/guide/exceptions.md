@@ -440,93 +440,51 @@ except BulkDeleteError as e:
 
 ## Transaction-related errors
 
-### RetryExhaustedError — real bug, only partially fixed
+### RetryExhaustedError
 
-`db.transaction_with_retry(...)` is meant to detect deadlocks by checking
-the database error message for known deadlock signatures, retry with
-increasing delays between attempts, and raise `RetryExhaustedError` if it
-still hasn't succeeded after all retries are used up. Until recently,
-`RetryExhaustedError` wasn't even imported into `db.py` — reaching that
-line would have crashed with `NameError: name 'RetryExhaustedError' is not
-defined` instead of raising the intended exception. That import is fixed.
-
-There's a deeper problem underneath, though: `transaction_with_retry` is
-implemented as a single `@contextmanager` generator that tries to retry by
-looping back to a second `yield` inside the same generator. Python's
-`contextlib` only allows a generator-based context manager to yield once —
-when the deadlock-shaped exception comes from **your own code inside the
-`with` block** (the realistic case — a deadlock on one of your own
-`UPDATE`/`INSERT` statements), retrying means throwing that exception back
-into the generator and having it try to yield again, which `contextlib`
-rejects with its own `RuntimeError: generator didn't stop after throw()`.
-You will see *that* error, not a clean retry and not `RetryExhaustedError`:
+`db.transaction_with_retry(fn, retries=3, retry_delay=0.5)` runs `fn(conn)`
+inside a transaction, detects deadlocks by checking the database error
+message for known deadlock signatures, retries with exponential backoff
+between attempts, and raises `RetryExhaustedError` if it still hasn't
+succeeded after all retries are used up:
 
 ```python
 from mydborm import db
+
+def transfer(conn):
+    db.execute(
+        "UPDATE accounts SET balance = balance - %s WHERE id = %s",
+        [100, 1]
+    )
+    db.execute(
+        "UPDATE accounts SET balance = balance + %s WHERE id = %s",
+        [100, 2]
+    )
 
 try:
-    with db.transaction_with_retry(retries=3, retry_delay=0.5):
-        db.execute(
-            "UPDATE accounts SET balance = balance - %s WHERE id = %s",
-            [100, 1]
-        )
-        db.execute(
-            "UPDATE accounts SET balance = balance + %s WHERE id = %s",
-            [100, 2]
-        )
-except Exception as e:
-    # On a real deadlock here, expect RuntimeError("generator didn't
-    # stop after throw()") from contextlib, not RetryExhaustedError —
-    # the retry loop can't yield a second time from the same generator.
-    print(f"Transfer failed: {type(e).__name__}: {e}")
+    db.transaction_with_retry(transfer, retries=3, retry_delay=0.5)
+except RetryExhaustedError as e:
+    print(f"Gave up after {e.attempts} attempts: {e.last_error}")
 ```
 
-`RetryExhaustedError` (and the retry itself) does work correctly for a
-failure that happens while *establishing* the transaction — before
-anything in the `with` block has run — since that doesn't require the
-generator to yield twice. That's a narrower case than "one of my
-statements deadlocked," which is what most people reaching for this
-method actually want to handle. Fixing the common case requires
-rewriting `transaction_with_retry` so it can genuinely re-run the whole
-`with` block on each attempt (for example, as a small wrapper function
-you call with your transaction body as an argument, rather than a
-`with`-statement context manager) — that's a bigger change than a
-one-line fix, and hasn't been done yet.
+> **API change:** `transaction_with_retry` used to be a `with`-statement
+> context manager (`with db.transaction_with_retry(...): ...`). That shape
+> could never correctly retry a deadlock raised by your own statements
+> inside the `with` block — Python's `@contextmanager` only allows a
+> generator to `yield` once, so retrying by throwing the exception back in
+> and looping to a second `yield` raised `contextlib`'s own
+> `RuntimeError: generator didn't stop after throw()` instead of a clean
+> retry. It's now a plain function that takes your transaction body as a
+> callable and re-invokes it from scratch on each attempt, which is the
+> only way to genuinely re-run the whole transaction. Since `fn` may run
+> more than once, keep it free of side effects outside the transaction.
 
-If you need working deadlock retry today, wrap your own retry loop
-around `db.transaction()` instead:
-
-```python
-from mydborm import db
-import time
-
-def transfer_with_retry(retries=3, retry_delay=0.5):
-    for attempt in range(retries + 1):
-        try:
-            with db.transaction():
-                db.execute(
-                    "UPDATE accounts SET balance = balance - %s WHERE id = %s",
-                    [100, 1]
-                )
-                db.execute(
-                    "UPDATE accounts SET balance = balance + %s WHERE id = %s",
-                    [100, 2]
-                )
-            return
-        except Exception as e:
-            if "deadlock" not in str(e).lower() or attempt == retries:
-                raise
-            time.sleep(retry_delay * (2 ** attempt))
-```
-
-Two details worth knowing about `transaction_with_retry` even given the
-limitation above: if the error *isn't* a deadlock (it doesn't match the
-known signatures), it doesn't retry at all — it raises that original
-error immediately, same as a plain `db.transaction()` would. And on the
-one path where `RetryExhaustedError` genuinely is reachable (the
-transaction-establishment case described above), `e.last_error` holds the
-original driver exception, not a mydborm type — `RetryExhaustedError` is
-just the wrapper telling you "we gave up."
+If the error *isn't* a deadlock (it doesn't match the known signatures —
+`deadlock`, `lock wait timeout`, MySQL error codes `1213`/`1205`), it
+doesn't retry at all — it raises that original error immediately, same as
+a plain `db.transaction()` would. `e.last_error` on a `RetryExhaustedError`
+holds the original driver exception from the final attempt, not a mydborm
+type.
 
 ### SavepointError — calling `db.savepoint()` outside a transaction (active)
 
@@ -714,7 +672,7 @@ classes yourself (e.g. raising one from your own code that wraps mydborm).
 | `BulkDeleteError` | `inserted`, `failed`, `errors` | **Yes** |
 | `SavepointError` | `savepoint`, `message` | **Yes**, for the "outside a transaction" case (also a `RuntimeError`) |
 | `DeadlockError` | `message` | No |
-| `RetryExhaustedError` | `attempts`, `last_error` | Partially — only for failures while starting the transaction, not for a deadlock on your own statements (see above) |
+| `RetryExhaustedError` | `attempts`, `last_error` | **Yes**, raised once `transaction_with_retry`'s retries are exhausted on a deadlock-shaped error |
 | `MigrationError` | `version`, `sql`, `message` | No |
 | `SchemaError` | `table`, `missing_columns`, `extra_columns` | **Yes** |
 | `UnsupportedDialectError` | `dialect`, `supported` | **Yes** (also a `ValueError`) |
@@ -777,12 +735,13 @@ def sync_products(records):
         raise
 ```
 
-### Retry pattern for deadlocks without transaction_with_retry
+### Retry pattern for non-transaction deadlocks
 
-If you need retry behavior outside of `db.transaction_with_retry(...)`,
-you can write your own loop. Since deadlocks aren't currently raised as a
-typed `DeadlockError`, match on the driver's own exception type or message
-instead:
+`db.transaction_with_retry(...)` covers the common case of retrying a
+`db.transaction()` body. If you need the same kind of retry around logic
+that isn't a transaction, write your own loop. Since deadlocks aren't
+currently raised as a typed `DeadlockError`, match on the driver's own
+exception type or message instead:
 
 ```python
 import time
