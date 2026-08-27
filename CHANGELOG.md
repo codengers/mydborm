@@ -1,5 +1,63 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Query/SQL logging — `echo=True` + `db.queries` (SQL, params, duration_ms; capped ring buffer)
+
+### Fixed
+- `transaction_with_retry()` can now retry deadlocks raised from within its own `with` block
+- `QueryBuilder.subquery()` no longer vulnerable to SQL injection via unescaped string literals
+- `.where()`/`.order_by()`/`.group_by()`/`.sum()`/`.avg()`/`.min()`/`.max()` now validate field names
+- `migrations.rollback()` now requires `confirm=True`; CLI `migrate --rollback` prompts for confirmation unless `--yes` is passed
+
+---
+
+## [1.12.0] - 2026-07-07
+
+### Added
+- SQLite dialect support — `SQLiteDialect`, serverless via stdlib `sqlite3`, `sqlite:///path` and `sqlite:///:memory:` URLs
+- SQLite support in the auto-migration engine (`generate()`, `apply_migration_file()`)
+- SQLite support in `AsyncBaseModel` via `aiosqlite`
+- SQLite support in the cross-database migration engine (`MigrationEngine`)
+
+---
+
+## [1.11.1] - 2026-07-02
+
+### Added
+- Multi-column `ORDER BY` via chained `.order_by()`
+- `on_delete`/`on_update` cascade actions on `ForeignKeyField`
+
+### Fixed
+- `SoftDeleteMixin.query()` now excludes soft-deleted rows by default
+
+---
+
+## [1.11.0] - 2026-07-01
+
+### Added
+- Real `FOREIGN KEY` constraint generation for `ForeignKeyField`
+
+### Fixed
+- Wired up previously-dead exception types; fixed `needs_rehash()` and the `bulk_delete` error class
+
+---
+
+## [1.10.1] - 2026-06-28
+
+### Fixed
+- `JSONField` didn't serialize/deserialize Python dicts or lists
+
+---
+
+## [1.10.0] - 2026-06-27
+
+### Added
+- Database-to-database migration engine — `MigrationEngine`, `ObjectMigrator`, `TypeMapper`; `migrate-db` CLI + Python API
+
+---
+
 ## [1.9.0] - 2026-06-26
 
 ### Added

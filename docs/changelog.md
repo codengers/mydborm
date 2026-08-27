@@ -1,159 +1,183 @@
 # Changelog
 
-## [1.2.1] - 2026-06-20
+## [Unreleased]
+
+### Added
+- Query/SQL logging — `echo=True` + `db.queries` (SQL, params, duration_ms; capped ring buffer)
+
 ### Fixed
-- Security extras (`bcrypt`, `cryptography`) now correctly declared in `pyproject.toml`
-- `pip install mydborm[security]` now works correctly
+- `transaction_with_retry()` can now retry deadlocks raised from within its own `with` block
+- `QueryBuilder.subquery()` no longer vulnerable to SQL injection via unescaped string literals
+- `.where()`/`.order_by()`/`.group_by()`/`.sum()`/`.avg()`/`.min()`/`.max()` now validate field names
+- `migrations.rollback()` now requires `confirm=True`; CLI `migrate --rollback` prompts for confirmation unless `--yes` is passed
 
-## [1.2.0] - 2026-06-20
+---
+
+## [1.12.0] - 2026-07-07
+
 ### Added
-- `PasswordField` — one-way bcrypt hashing for user passwords
-  - Auto-hashes on `create()` / `update()`
-  - `PasswordField.verify(plain, hashed)` → True/False
-  - `PasswordField.hash(plain, rounds=12)` → hash string
-  - Configurable work factor (rounds)
-- `EncryptedField` — two-way AES encryption (Fernet/AES-128-CBC)
-  - Auto-encrypts on `create()` / `update()`
-  - `EncryptedField.generate_key()` → new Fernet key
-  - `EncryptedField.encrypt(plain, key)` → ciphertext
-  - `EncryptedField.decrypt(cipher, key)` → plaintext
-  - `field.decrypt_value(cipher)` → plaintext
-- `pip install mydborm[security]` — optional security dependencies
-- 35 new tests — total: 658 tests
+- SQLite dialect support — `SQLiteDialect`, serverless via stdlib `sqlite3`, `sqlite:///path` and `sqlite:///:memory:` URLs
+- SQLite support in the auto-migration engine (`generate()`, `apply_migration_file()`)
+- SQLite support in `AsyncBaseModel` via `aiosqlite`
+- SQLite support in the cross-database migration engine (`MigrationEngine`)
 
-## [1.1.0] - 2026-06-20
+---
+
+## [1.11.1] - 2026-07-02
+
 ### Added
-- 17 new field types with full MySQL ↔ YugabyteDB dialect mapping:
-  - `TinyIntField` — TINYINT → SMALLINT
-  - `SmallIntField` — SMALLINT → SMALLINT
-  - `BigIntField` — BIGINT → BIGINT
-  - `UnsignedBigIntField` — BIGINT UNSIGNED → NUMERIC(20)
-  - `DoubleField` — DOUBLE → DOUBLE PRECISION
-  - `BitField(n)` — BIT(n) → BIT(n)
-  - `CharField(n)` — CHAR(n) → CHAR(n)
-  - `TinyTextField` — TINYTEXT → TEXT
-  - `MediumTextField` — MEDIUMTEXT → TEXT
-  - `LongTextField` — LONGTEXT → TEXT
-  - `BinaryField(n)` — BINARY(n) → BYTEA
-  - `VarBinaryField(n)` — VARBINARY(n) → BYTEA
-  - `BlobField` — BLOB/MEDIUMBLOB/LONGBLOB → BYTEA
-  - `TimeField` — TIME → TIME
-  - `TimestampField` — TIMESTAMP → TIMESTAMPTZ
-  - `EnumField(choices)` — ENUM(...) → VARCHAR(n)
-  - `SetField(choices)` — SET(...) → TEXT[]
-- 62 new tests — total: 623 tests
+- Multi-column `ORDER BY` via chained `.order_by()`
+- `on_delete`/`on_update` cascade actions on `ForeignKeyField`
 
-## [1.0.1] - 2026-06-19
 ### Fixed
-- CLI version test uses dynamic version check
-- Security extra properly declared in pyproject.toml
+- `SoftDeleteMixin.query()` now excludes soft-deleted rows by default
 
-## [1.0.0] - 2026-06-19 — Stable release
+---
+
+## [1.11.0] - 2026-07-01
+
 ### Added
-- MkDocs documentation site at https://codengers.github.io/mydborm/
-- Type hints and docstring improvements
-- Production/Stable PyPI classifier
-- `docs` optional dependencies group
-- API stability guarantee
+- Real `FOREIGN KEY` constraint generation for `ForeignKeyField`
 
-## [0.8.0] - 2026-06-19
-### Added
-- Auto-migration generation — `generate()`, `apply_migration_file()`, `list_migration_files()`
-- `mydborm generate` CLI command
-- GROUP BY + HAVING in QueryBuilder — `.group_by()`, `.having()`
-- Subquery support — `.subquery(field)` + `__in` subquery
-- Performance benchmarks — mydborm vs SQLAlchemy vs Peewee vs YugabyteDB
-- 26 new auto-migration tests + 26 GROUP BY tests — total: 561 tests
-
-## [0.7.0] - 2026-06-19
-### Added
-- Coverage 44% → 88% (+44%)
-- `tests/test_dialects.py` — 42 tests, MySQL + YugabyteDB dialect 100% coverage
-- `tests/test_migrations.py` — 31 tests, migration engine 90% coverage
-- `tests/test_cli.py` — 35 tests, all 6 CLI commands tested
-- Custom validators — `EmailValidator`, `UrlValidator`, `RegexValidator`,
-  `RangeValidator`, `MinLengthValidator`, `ChoiceValidator`
-- `Field.validators` parameter — attach validators to any field
-- `Model.__validators__` — cross-field validation rules
-- 48 validator tests — total: 509 tests
-
-## [0.6.0] - 2026-06-19
-### Added
-- `Session` — identity map, change tracking, unit of work
-- `ObjectState` — NEW, CLEAN, DIRTY, DELETED, DETACHED
-- `TrackedInstance` — wraps ModelInstance with state tracking
-- `TrackingDict` — auto-marks dirty fields on assignment
-- `session.get()`, `session.add()`, `session.delete()`
-- `session.flush()`, `session.commit()`, `session.rollback()`
-- `session.is_dirty()`, `session.dirty_fields()`, `session.original_value()`
-- Context manager support — auto flush+commit, rollback on exception
-- `LazyRelation` descriptor — lazy loading with caching
-- `QueryBuilder.include()` — eager loading, N+1 prevention
-- `ModelInstance.__getattr__` fix — descriptor-aware attribute access
-- 32 session tests + 23 lazy loading tests — total: 353 tests
-
-## [0.5.0] - 2026-06-19
-### Added
-- 24 custom exception types (`MydbormError` hierarchy)
-- Chunked bulk operations — `chunked_bulk_create/update/delete`
-- `BulkResult` — detailed result with inserted/failed/chunks/retries/duration
-- `_with_retry` — exponential backoff retry helper
-- Savepoints — `db.savepoint()`, partial rollback within transactions
-- Nested transactions — `db.nested_transaction()`
-- Bulk transactions — `db.bulk_transaction()`
-- Transaction retry — `db.transaction_with_retry(retries, retry_delay)`
-- UTF-8/charset configuration — `db.configure(charset="utf8mb4", encoding="utf-8")`
-- `bulk_upsert()` — ON DUPLICATE KEY UPDATE (MySQL) / ON CONFLICT DO UPDATE (YugabyteDB)
-- JOIN support — `.join()`, `.inner_join()`, `.left_join()`, `.right_join()`
-- Serialization — `to_dict()`, `to_json()`, `to_json_dict()`, `from_dict()`, `from_json()`
-- Schema validation — `validate_schema()`, `schema_info()`
-- 128 new tests — total: 298 tests
-
-## [0.4.1] - 2026-06-19
 ### Fixed
-- YugabyteDB dialect — SERIAL primary keys (not AUTO_INCREMENT)
-- YugabyteDB — native BOOLEAN (not TINYINT(1))
-- YugabyteDB — JSONB (not JSON)
-- YugabyteDB — double-quote identifiers (not backticks)
-- YugabyteDB — RETURNING id on INSERT (for lastrowid)
-- `to_sql_def()` accepts `dialect` parameter
-- YugabyteDB tests skip gracefully when container not running
-- 27 YugabyteDB integration tests — total: 169 tests
+- Wired up previously-dead exception types; fixed `needs_rehash()` and the `bulk_delete` error class
 
-## [0.4.0] - 2026-06-19
-### Added
-- Bulk operations — `bulk_create()`, `bulk_update()`, `bulk_delete()`
-- Raw SQL — `db.execute()`, `db.fetchall()`, `db.fetchone()`
-- Transaction context manager — `db.transaction()`
-- `db.table_exists()`, `db.list_tables()`
-- `AsyncConnectionManager` — via aiomysql (MySQL) / aiopg (YugabyteDB)
-- `AsyncBaseModel` — full async CRUD: create, get, all, filter, update, delete, count
-- Connection pooling — `db.configure_pool()`, `db.pool_status()`, `db.ping()`, `db.reconnect()`
-- `mydborm pool` CLI command
-- 73 new tests — total: 142 tests
+---
 
-## [0.3.0] - 2026-06-19
-### Added
-- `QueryBuilder` — `.where()`, operators, `.order_by()`, `.limit()`, `.offset()`
-- 8 filter operators — `__gt`, `__lt`, `__gte`, `__lte`, `__ne`, `__like`, `__in`, `__null`
-- Aggregates — `.sum()`, `.avg()`, `.min()`, `.max()`, `.count()`
-- `ModelInstance` — dict + attribute access + relationship methods
-- `has_many()`, `belongs_to()`, `many_to_many()` relationship methods
-- GitHub Actions CI — Python 3.9, 3.10, 3.11, 3.12 matrix
-- PyPI trusted publishing — auto-publish on git tag
-- 48 new tests — total: 69 tests
+## [1.10.1] - 2026-06-28
 
-## [0.2.0] - 2026-06-19
+### Fixed
+- `JSONField` didn't serialize/deserialize Python dicts or lists
+
+---
+
+## [1.10.0] - 2026-06-27
+
 ### Added
-- `BaseModel` with full CRUD: create, get, all, filter, update, delete, count, exists
-- 10 field types: IntField, StrField, TextField, BoolField, FloatField, DecimalField,
-  DateField, DateTimeField, JSONField, ForeignKeyField
-- Thread-safe `ConnectionManager` with pool support
-- MySQL 8+ + YugabyteDB (YSQL) dialect support
-- Schema migration engine — `migrate()`, `migration_status()`, `rollback()`
+- Database-to-database migration engine — `MigrationEngine`, `ObjectMigrator`, `TypeMapper`; `migrate-db` CLI + Python API
+
+---
+
+## [1.9.0] - 2026-06-26
+
+### Added
+- `QueryBuilder.where_raw(sql, *params)` — raw SQL AND condition escape hatch; params safely parameterized
+- `QueryBuilder.or_where_raw(sql, *params)` — raw SQL OR condition; grouped and ANDed with WHERE filters
+- QueryBuilder reference section added to README — full operator table, all methods, examples
+
+---
+
+## [1.8.0] - 2026-06-26
+
+### Added
+- `QueryBuilder.or_where()` — OR conditions grouped and ANDed with WHERE filters; supports all 9 operators
+- `QueryBuilder.distinct()` — `SELECT DISTINCT` support; unaffected by `count()` and aggregates
+
+---
+
+## [1.7.0] - 2026-06-26
+
+### Added
+- `QueryBuilder.update(**kwargs)` — bulk-update matching rows, returns affected row count
+- `QueryBuilder.select(*columns)` — column projection, restricts `SELECT *` to specific columns
+- Comprehensive README overhaul — sections 18–20 (Mixins, Session, Validators), full operator table, extended field types, 30+ field reference
+
+---
+
+## [1.6.0] - 2026-06-25
+
+### Added
+- `QueryBuilder.paginate(page, per_page)` — returns `{data, total, pages, page, per_page}`
+- Page clamping: `page < 1` is treated as `page=1`
+- 7 new tests in `test_query_builder.py`
+
+---
+
+## [1.5.0] - 2026-06-25
+
+### Improved
+- Test coverage raised from 95% → 96% (909 tests passing)
+- `bulk.py` 80% → 100%, `session.py` 93% → 98%, `db.py` 85% → 94%
+- YugabyteDB provisioned in GitHub Actions CI (no longer skipped)
+- GitHub Actions upgraded to Node.js 24 (checkout@v5, setup-python@v6, upload-artifact@v5)
+- Coverage report now uploads as `coverage.xml` artifact
+
+---
+
+## [1.4.0] - 2026-06-25
+
+### Added
+- PostgreSQL dialect — `get_dialect('postgres')`, `PostgreSQLDialect`, port 5432
+- Composite primary keys — `__pk__ = ("col1", "col2")` for MySQL + YugabyteDB
+- Index management — `create_index`, `drop_index`, `list_indexes`, `__indexes__`
+- Lifecycle hooks — `before_create`, `after_create`, `before_update`, `after_update`, `before_delete`, `after_delete`
+
+### Improved
+- Test coverage raised from 88% → 95% (930 tests passing)
+- YugabyteDB CLI tests gracefully skipped in CI when service is unavailable
+
+---
+
+## [0.5.0] - 2026-06-15 (in development)
+
+### Added
+- Custom exception hierarchy — 24 exception types (exceptions.py)
+- Chunked bulk operations with BulkResult + retry logic (bulk.py)
+- Savepoints — partial rollback within transactions
+- Nested transactions using savepoints
+- bulk_transaction() — atomic multi-model operations
+- transaction_with_retry() — auto-retry on deadlock
+- UTF-8 / charset configuration in db.configure()
+- bulk_upsert() — INSERT ON DUPLICATE KEY UPDATE (MySQL)
+                   INSERT ON CONFLICT DO UPDATE (YugabyteDB)
+- JOIN support in QueryBuilder — inner_join, left_join, right_join
+- 263 tests passing
+
+## [0.4.1] - 2026-06-15
+
+### Fixed
+- YugabyteDB dialect — SERIAL PK, BOOLEAN, JSONB, double-quote identifiers
+- RETURNING id on INSERT for YugabyteDB
+- to_sql_def() accepts dialect parameter
+- YugabyteDB tests skip gracefully when not available
+
+## [0.4.0] - 2026-06-15
+
+### Added
+- bulk_create, bulk_update, bulk_delete
+- db.execute, db.fetchall, db.fetchone
+- db.transaction context manager
+- db.table_exists, db.list_tables
+- AsyncConnectionManager via aiomysql + aiopg
+- AsyncBaseModel with full async CRUD
+- configure_pool, pool_status, ping, reconnect
+- mydborm pool CLI command
+- 142 tests passing
+
+## [0.3.0] - 2026-06-15
+
+### Added
+- QueryBuilder with .where(), operators, .order_by(), .limit(), .offset()
+- 8 operators — __gt, __lt, __gte, __lte, __ne, __like, __in, __null
+- Aggregates — .sum(), .avg(), .min(), .max(), .count()
+- ModelInstance — dict + attribute access
+- has_many, belongs_to, many_to_many relationships
+- GitHub Actions CI — Python 3.9/3.10/3.11/3.12
+- PyPI trusted publishing
+- 69 tests passing
+
+## [0.2.0] - 2026-06-15
+
+### Added
+- BaseModel with full CRUD
+- 11 field types with validation
+- Thread-safe ConnectionManager
+- MySQL + YugabyteDB dialect support
+- Schema migration engine with history tracking
 - Rich CLI — version, ping, tables, inspect, migrate
-- 21 tests
+- 21 tests passing
 
 ## [0.1.0] - 2026-01-01
+
 ### Added
 - Initial release with basic project scaffold

@@ -184,5 +184,15 @@ __all__ = [
     "MigrationResult",
     "TypeMapper",
     "ObjectMigrator",
+    # Migrations (single-DB schema migrations)
+    "migrate",
+    "migration_status",
+    "rollback",
+    "get_live_schema",
+    "diff_schema",
+    "generate_migration_sql",
+    "generate",
+    "apply_migration_file",
+    "list_migration_files",
 ]
 
