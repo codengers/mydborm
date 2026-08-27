@@ -232,6 +232,54 @@ def test_max():
 
 
 # ------------------------------------------------------------------ #
+#  Identifier validation — where/order_by/group_by/aggregates          #
+# ------------------------------------------------------------------ #
+
+INVALID_FIELD_NAMES = [
+    "id; DROP TABLE items; --",
+    "id) OR (1=1",
+    "id'",
+    "id`",
+    "",
+]
+
+
+@pytest.mark.parametrize("bad_name", INVALID_FIELD_NAMES)
+def test_where_rejects_invalid_identifier(bad_name):
+    with pytest.raises(ValueError, match="Invalid field name"):
+        Item.query().where(bad_name, 1)
+
+
+@pytest.mark.parametrize("bad_name", INVALID_FIELD_NAMES)
+def test_order_by_rejects_invalid_identifier(bad_name):
+    with pytest.raises(ValueError, match="Invalid field name"):
+        Item.query().order_by(bad_name)
+
+
+@pytest.mark.parametrize("bad_name", INVALID_FIELD_NAMES)
+def test_group_by_rejects_invalid_identifier(bad_name):
+    with pytest.raises(ValueError, match="Invalid field name"):
+        Item.query().group_by(bad_name)
+
+
+@pytest.mark.parametrize("bad_name", INVALID_FIELD_NAMES)
+def test_sum_rejects_invalid_identifier(bad_name):
+    with pytest.raises(ValueError, match="Invalid field name"):
+        Item.query().sum(bad_name)
+
+
+def test_where_accepts_dotted_identifier():
+    # table.column form (used for joined queries) must still work.
+    rows = Item.query().where("items.active", True).all()
+    assert len(rows) == 3
+
+
+def test_order_by_accepts_plain_identifier():
+    rows = Item.query().order_by("price").all()
+    assert len(rows) == 5
+
+
+# ------------------------------------------------------------------ #
 #  Delete via query                                                    #
 # ------------------------------------------------------------------ #
 

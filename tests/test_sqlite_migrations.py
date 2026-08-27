@@ -173,14 +173,23 @@ def test_rollback_drops_table():
     mg.migrate(SMUser)
     assert mg.table_exists("sm_users") is True
 
-    result = mg.rollback(SMUser)
+    result = mg.rollback(SMUser, confirm=True)
     assert result["applied"] is True
     assert mg.table_exists("sm_users") is False
 
 
 def test_rollback_missing_table_reports_not_applied():
-    result = mg.rollback(SMUser)
+    result = mg.rollback(SMUser, confirm=True)
     assert result["applied"] is False
+
+
+def test_rollback_requires_confirm():
+    mg.migrate(SMUser)
+    assert mg.table_exists("sm_users") is True
+    with pytest.raises(ValueError, match="confirm=True"):
+        mg.rollback(SMUser)
+    assert mg.table_exists("sm_users") is True
+    mg.rollback(SMUser, confirm=True)
 
 
 # ------------------------------------------------------------------ #

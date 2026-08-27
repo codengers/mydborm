@@ -409,13 +409,19 @@ def migration_status() -> list[dict]:
 #  Rollback                                                            #
 # ------------------------------------------------------------------ #
 
-def rollback(model_class) -> dict:
+def rollback(model_class, confirm: bool = False) -> dict:
     """
     Roll back the last migration for a model by dropping its table.
     Marks the migration as rolled_back in the tracking table.
 
-    Use with caution — this drops the table and all its data.
+    Drops the table and all its data — requires confirm=True.
     """
+    if not confirm:
+        raise ValueError(
+            "rollback(model, confirm=True) is required — this drops the "
+            "table and all its data."
+        )
+
     _ensure_migrations_table()
 
     table   = model_class._table

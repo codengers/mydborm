@@ -259,6 +259,28 @@ def test_subquery_empty_result(seeded):
     assert len(rows) == 0
 
 
+def test_subquery_escapes_embedded_quote(seeded):
+    # Legitimate data containing a single quote must round-trip correctly,
+    # not just avoid breaking the surrounding SQL.
+    Sale.create(region="O'Brien", product="Widget", amount=42.0, shipped=True)
+    sq = Sale.query().where("region", "O'Brien").subquery("id")
+    assert "O''Brien" in sq
+    assert "O'Brien'" not in sq.replace("O''Brien", "")  # no unescaped break-out
+
+    rows = Sale.query().where("id__in", sq).all()
+    assert len(rows) == 1
+    assert rows[0]["region"] == "O'Brien"
+
+
+def test_subquery_injection_attempt_matches_nothing(seeded):
+    # A classic tautology payload must NOT widen the subquery to match
+    # every row — it should be treated as literal (non-matching) data.
+    payload = "nonexistent' OR '1'='1"
+    sq = Sale.query().where("region", payload).subquery("id")
+    rows = Sale.query().where("id__in", sq).all()
+    assert rows == []
+
+
 # ------------------------------------------------------------------ #
 #  Combined                                                            #
 # ------------------------------------------------------------------ #

@@ -19,7 +19,7 @@ from mydborm.db import ConnectionManager
 from mydborm import BaseModel, IntField, StrField, BoolField
 from mydborm.migrate import (
     TypeMapper, SchemaExtractor, DDLGenerator, DataTransfer, Verifier,
-    MigrationEngine, MigrationResult, ObjectMigrator, _pg_column_type,
+    MigrationEngine, MigrationResult, ObjectMigrator, _pg_column_type, _quote,
 )
 
 
@@ -162,6 +162,34 @@ def test_is_known_type_true_for_mapped():
 
 def test_is_known_type_false_for_unmapped():
     assert TypeMapper.is_known_type("geometry", "mysql") is False
+
+
+# ------------------------------------------------------------------ #
+#  _quote() — identifier validation                                    #
+# ------------------------------------------------------------------ #
+
+def test_quote_mysql_wraps_in_backticks():
+    assert _quote("users", "mysql") == "`users`"
+
+
+def test_quote_postgres_family_wraps_in_double_quotes():
+    assert _quote("users", "postgres") == '"users"'
+    assert _quote("users", "yugabyte") == '"users"'
+
+
+def test_quote_rejects_embedded_backtick():
+    with pytest.raises(ValueError, match="Invalid identifier"):
+        _quote("users`; DROP TABLE users; --", "mysql")
+
+
+def test_quote_rejects_embedded_quote():
+    with pytest.raises(ValueError, match="Invalid identifier"):
+        _quote('users"; DROP TABLE users; --', "postgres")
+
+
+def test_quote_rejects_empty_identifier():
+    with pytest.raises(ValueError, match="Invalid identifier"):
+        _quote("", "mysql")
 
 
 # ------------------------------------------------------------------ #

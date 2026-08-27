@@ -29,7 +29,12 @@ def _normalize_dialect(name: str) -> str:
     return "postgres" if name == "postgresql" else name
 
 
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
 def _quote(identifier: str, dialect: str) -> str:
+    if not _IDENTIFIER_RE.match(identifier or ""):
+        raise ValueError(f"Invalid identifier: {identifier!r}")
     dialect = _normalize_dialect(dialect)
     if dialect in PG_FAMILY:
         return f'"{identifier}"'

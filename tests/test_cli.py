@@ -447,7 +447,7 @@ def test_migrate_rollback_path():
     # Now rollback
     result = runner.invoke(cli, [
         "migrate"
-    ] + DB_OPTS + ["--model", "tests.test_migrations.MigUser", "--rollback"])
+    ] + DB_OPTS + ["--model", "tests.test_migrations.MigUser", "--rollback", "--yes"])
     _db.close()
     assert result.exit_code == 0
     # Either "✔" (applied) or "⚠" (nothing to rollback)
@@ -457,6 +457,65 @@ def test_migrate_rollback_path():
     with _db.connect() as conn:
         conn.cursor().execute("DROP TABLE IF EXISTS mig_users")
     _db.close()
+
+
+def _reset_mig_users():
+    """Drop mig_users and purge any stale tracking rows so the next
+    `migrate` apply is guaranteed to (re)create the table, rather than
+    reporting a false-positive 'already applied' against a leftover
+    tracking row from an earlier test."""
+    from mydborm import db as _db
+    _db.configure(dialect="mysql", host="127.0.0.1", port=3307, user="root",
+                  password=os.environ.get("DB_PASSWORD", "root"), database="testdb")
+    with _db.connect() as conn:
+        cur = conn.cursor()
+        cur.execute("DROP TABLE IF EXISTS mig_users")
+        cur.execute(
+            "DELETE FROM `_mydborm_migrations` WHERE description LIKE '%mig_users%'"
+        )
+    _db.close()
+
+
+def test_migrate_rollback_prompt_declined():
+    """migrate --rollback without --yes prompts, and declining leaves the table."""
+    from mydborm import db as _db
+    _reset_mig_users()
+    runner.invoke(cli, [
+        "migrate"
+    ] + DB_OPTS + ["--model", "tests.test_migrations.MigUser"])
+    _db.close()
+
+    result = runner.invoke(cli, [
+        "migrate"
+    ] + DB_OPTS + ["--model", "tests.test_migrations.MigUser", "--rollback"], input="n\n")
+    _db.close()
+    assert result.exit_code == 0
+    assert "cancelled" in result.output.lower()
+
+    _db.configure(dialect="mysql", host="127.0.0.1", port=3307, user="root",
+                  password=os.environ.get("DB_PASSWORD", "root"), database="testdb")
+    import mydborm.migrations as _mg
+    assert _mg.table_exists("mig_users") is True
+    _reset_mig_users()
+
+
+def test_migrate_rollback_prompt_confirmed():
+    """migrate --rollback without --yes prompts, and confirming drops the table."""
+    from mydborm import db as _db
+    _reset_mig_users()
+    runner.invoke(cli, [
+        "migrate"
+    ] + DB_OPTS + ["--model", "tests.test_migrations.MigUser"])
+    _db.close()
+
+    result = runner.invoke(cli, [
+        "migrate"
+    ] + DB_OPTS + ["--model", "tests.test_migrations.MigUser", "--rollback"], input="y\n")
+    _db.close()
+    assert result.exit_code == 0
+    assert "✔" in result.output or "⚠" in result.output
+
+    _reset_mig_users()
 
 
 # ------------------------------------------------------------------ #
