@@ -301,28 +301,37 @@ def test_migration_status_applied_flag():
 def test_rollback_drops_table():
     mg.migrate(MigUser, description="mig_users rollback test")
     assert mg.table_exists("mig_users") is True
-    result = mg.rollback(MigUser)
+    result = mg.rollback(MigUser, confirm=True)
     assert result["applied"]            is True
     assert mg.table_exists("mig_users") is False
 
 
 def test_rollback_returns_result():
     mg.migrate(MigUser)
-    result = mg.rollback(MigUser)
+    result = mg.rollback(MigUser, confirm=True)
     assert "table"   in result
     assert "applied" in result
     assert "message" in result
 
 
 def test_rollback_nonexistent_table():
-    result = mg.rollback(MigUser)
+    result = mg.rollback(MigUser, confirm=True)
     assert result["applied"] is False
     assert "does not exist"  in result["message"].lower()
 
 
+def test_rollback_requires_confirm():
+    mg.migrate(MigUser, description="mig_users confirm gate test")
+    assert mg.table_exists("mig_users") is True
+    with pytest.raises(ValueError, match="confirm=True"):
+        mg.rollback(MigUser)
+    assert mg.table_exists("mig_users") is True
+    mg.rollback(MigUser, confirm=True)
+
+
 def test_rollback_marks_as_rolled_back():
     mg.migrate(MigUser, description="mig_users rb mark test")
-    mg.rollback(MigUser)
+    mg.rollback(MigUser, confirm=True)
     status  = mg.migration_status()
     records = [s for s in status
                if "mig_users rb mark" in s["description"]]

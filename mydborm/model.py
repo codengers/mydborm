@@ -17,9 +17,32 @@ Provides declarative model definition + CRUD operations.
 """
 
 import json
+import re
 from typing import Optional
 from .fields import Field, JSONField, ForeignKeyField
 from .db import db
+
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
+
+
+def _validate_identifier(name: str) -> str:
+    """Reject field names that aren't plain or dotted (table.column)
+    identifiers — guards .where()/.order_by()/.group_by()/aggregates against
+    being fed a request-controlled string (e.g. an unvalidated ?sort= param)
+    that could otherwise be interpolated straight into SQL."""
+    if not isinstance(name, str) or not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"Invalid field name: {name!r}")
+    return name
+
+
+def _escape_sql_literal(value: str, dialect: str) -> str:
+    """Escape a string for direct inlining as a SQL literal.
+    Only used by subquery() — normal queries stay parameterized and never
+    need this."""
+    escaped = value.replace("\\", "\\\\") if dialect == "mysql" else value
+    escaped = escaped.replace("'", "''")
+    return "'" + escaped + "'"
 
 
 def _find_model_by_name(name: str):
@@ -192,6 +215,10 @@ class QueryBuilder:
     def select(self, *columns: str) -> "QueryBuilder":
         """Restrict SELECT to specific columns.
 
+        Columns are inlined into the SQL text as-is (this is what lets you
+        pass expressions like "COUNT(*) as cnt") — the caller is responsible
+        for not passing untrusted input here.
+
         Example:
             User.query().select("id", "name").where("active", True).all()
             # → SELECT id, name FROM users WHERE active = 1
@@ -223,6 +250,7 @@ class QueryBuilder:
                 col = field_op[: -len(suffix)]
                 op  = operator
                 break
+        _validate_identifier(col)
 
         if op == "IN":
             if isinstance(value, str) and value.startswith("(SELECT"):
@@ -252,6 +280,9 @@ class QueryBuilder:
         """
         Add a raw SQL AND condition — escape hatch for expressions that don't
         fit the built-in operator syntax.
+
+        `sql` is inlined as-is; only `params` go through parameter binding.
+        Never build `sql` by concatenating untrusted input.
 
         Args:
             sql    : raw SQL fragment, use %s for parameter placeholders
@@ -285,6 +316,9 @@ class QueryBuilder:
 
         Same as where_raw() but placed in the OR group:
             WHERE <and_conditions> AND (<or1> OR <or2> OR ...)
+
+        `sql` is inlined as-is; never build it by concatenating untrusted
+        input — see where_raw().
 
         Usage:
             Order.query()
@@ -422,6 +456,8 @@ class QueryBuilder:
                  .group_by("user_id", "status")
                  .all()
         """
+        for f in fields:
+            _validate_identifier(f)
         self._group_by.extend(fields)
         return self
 
@@ -430,6 +466,9 @@ class QueryBuilder:
         """
         Add HAVING clause — filter on aggregated values.
         Must be used with group_by().
+
+        `condition` is inlined as-is; only `params` go through parameter
+        binding. Never build `condition` by concatenating untrusted input.
 
         Args:
             condition : SQL condition string e.g. "COUNT(*) > 5"
@@ -469,9 +508,10 @@ class QueryBuilder:
         """
         sql, params = self._build_sql(select=field)
         # Inline params into SQL for subquery use
+        dialect = db.dialect
         for param in params:
             if isinstance(param, str):
-                sql = sql.replace("%s", f"'{param}'", 1)
+                sql = sql.replace("%s", _escape_sql_literal(param, dialect), 1)
             elif isinstance(param, bool):
                 sql = sql.replace("%s", "1" if param else "0", 1)
             elif param is None:
@@ -491,6 +531,7 @@ class QueryBuilder:
         .order_by("region").order_by("revenue", desc=True)
             → ORDER BY region ASC, revenue DESC
         """
+        _validate_identifier(field)
         self._orders.append((field, "DESC" if desc else "ASC"))
         return self
 
@@ -671,6 +712,7 @@ class QueryBuilder:
 
     def sum(self, field: str) -> float:
         """Return SUM of a field."""
+        _validate_identifier(field)
         sql, params = self._build_sql(select=f"SUM({field})")
         rows = self._model._fetch(sql + ";", params)
         result = list(rows[0].values())[0]
@@ -678,6 +720,7 @@ class QueryBuilder:
 
     def avg(self, field: str) -> float:
         """Return AVG of a field."""
+        _validate_identifier(field)
         sql, params = self._build_sql(select=f"AVG({field})")
         rows = self._model._fetch(sql + ";", params)
         result = list(rows[0].values())[0]
@@ -685,12 +728,14 @@ class QueryBuilder:
 
     def min(self, field: str):
         """Return MIN of a field."""
+        _validate_identifier(field)
         sql, params = self._build_sql(select=f"MIN({field})")
         rows = self._model._fetch(sql + ";", params)
         return list(rows[0].values())[0]
 
     def max(self, field: str):
         """Return MAX of a field."""
+        _validate_identifier(field)
         sql, params = self._build_sql(select=f"MAX({field})")
         rows = self._model._fetch(sql + ";", params)
         return list(rows[0].values())[0]

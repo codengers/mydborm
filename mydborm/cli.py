@@ -323,6 +323,7 @@ def migrate(
     status:      bool = typer.Option(False,       "--status",   "-s", help="Show migration history"),
     rollback:    bool = typer.Option(False,       "--rollback", "-r", help="Rollback last migration"),
     model_path:  str  = typer.Option("",          "--model",    "-m", help="Python import path to model e.g. myapp.models.User"),
+    yes:         bool = typer.Option(False,       "--yes",      "-y", help="Skip the rollback confirmation prompt"),
 ):
     """
     Run, inspect, or rollback migrations.
@@ -398,11 +399,20 @@ def migrate(
 
     # ── Rollback ──────────────────────────────────────────────────── #
     if rollback:
+        if not yes:
+            confirmed = typer.confirm(
+                f"This will DROP TABLE '{model_cls._table}' and all its data. Continue?",
+                default=False,
+            )
+            if not confirmed:
+                console.print("\n[yellow]Rollback cancelled.[/yellow]\n")
+                raise typer.Exit(code=0)
+
         console.print(
             f"\n[yellow]Rolling back[/yellow] "
             f"[bold]{model_cls._table}[/bold] ..."
         )
-        result = mg.rollback(model_cls)
+        result = mg.rollback(model_cls, confirm=True)
         if result["applied"]:
             console.print(f"[green]✔[/green] {result['message']}\n")
         else:
