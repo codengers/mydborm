@@ -11,9 +11,8 @@
 # =============================================================================
 
 import time
-import math
 from typing import Callable, Optional
-from .exceptions import BulkInsertError, BulkUpdateError, BulkUpsertError, BulkDeleteError
+from .exceptions import BulkInsertError, BulkUpdateError, BulkDeleteError
 
 
 # ------------------------------------------------------------------ #

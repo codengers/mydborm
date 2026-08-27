@@ -12,12 +12,10 @@
 # =============================================================================
 
 import hashlib
-import json
+import os as _os
 from datetime import datetime
-from typing import Optional
 
 from .db import db
-from .fields import Field
 
 
 # ------------------------------------------------------------------ #
@@ -467,9 +465,6 @@ def rollback(model_class, confirm: bool = False) -> dict:
 #  Auto-migration file generation                                      #
 # ------------------------------------------------------------------ #
 
-import os as _os
-import datetime as _datetime
-
 
 def generate(
     model_class,
@@ -534,9 +529,9 @@ def generate(
     filepath    = _os.path.join(output_dir, filename)
 
     # Build file content
-    timestamp = _datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lines     = [
-        f"-- mydborm auto-generated migration",
+        "-- mydborm auto-generated migration",
         f"-- version    : {version}",
         f"-- table      : {table_name}",
         f"-- generated  : {timestamp}",

@@ -31,6 +31,7 @@ Supports MySQL and YugabyteDB (YSQL) column types.
 """
 
 import json
+import re as _re
 from datetime import date, datetime
 from typing import Any, Optional
 
@@ -324,9 +325,6 @@ class ForeignKeyField(Field):
 # ------------------------------------------------------------------ #
 #  Built-in validators                                                 #
 # ------------------------------------------------------------------ #
-
-import re as _re
-
 
 class ValidationRule:
     """

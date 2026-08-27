@@ -63,6 +63,14 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
+# E501 (line-too-long): no formatter (Black/isort) is used in this project and
+# CLI/docstring lines routinely exceed 88 cols by design.
+# I001 (import sorting): __init__.py's import grouping/comments are curated by
+# hand; alphabetizing would destroy that organization.
+ignore = ["E501", "I001"]
+
+[tool.coverage.report]
+fail_under = 90
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
