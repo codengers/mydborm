@@ -28,6 +28,7 @@ db.py — Cross-platform connection manager for mydborm.
 Supports MySQL and YugabyteDB (via PostgreSQL wire protocol).
 """
 
+import hashlib
 import logging
 import os
 import threading
@@ -216,6 +217,12 @@ class ConnectionManager:
         # ConnectionManager instances (e.g. migration source + target)
         # hold independent connections within the same thread.
         self._local = threading.local()
+        # Connection pooling — see configure_pool(). _pool_config is only
+        # set once configure_pool() is called; _pg_pool is the lazily
+        # created psycopg2 pool for the postgres/yugabyte dialects.
+        self._pool_config = None
+        self._pg_pool = None
+        self._mysql_pool_name_cache = None
 
     # ------------------------------------------------------------------ #
     #  Configuration                                                        #
@@ -243,6 +250,12 @@ class ConnectionManager:
                 "dialect is required. "
                 f"Choose from: {SUPPORTED_DIALECTS}"
             )
+        # A new config may point at a different database entirely — tear
+        # down any pool bound to the old one so it can't keep serving
+        # connections to the wrong target, and require pooling to be
+        # explicitly re-enabled via configure_pool() for the new config.
+        self._teardown_pools()
+        self._pool_config = None
         # Store Python encoding separately — not passed to driver
         self._encoding    = kwargs.pop("encoding", "utf-8")
         self._log_queries = kwargs.pop("echo", False)
@@ -276,6 +289,41 @@ class ConnectionManager:
         """Python encoding for text handling (default utf-8)."""
         return getattr(self, "_encoding", "utf-8")
 
+    def _mysql_pool_name(self) -> str:
+        """Deterministic pool name for this instance + current config —
+        must change if host/port/database/pool_size change. mysql-connector
+        keeps pools in a process-global registry keyed by this name and
+        raises PoolError("Size can not be changed for active pools") if a
+        connect() targets an existing name with a different pool_size, so
+        pool_size has to be part of the key, not just the connection
+        target."""
+        if not self._mysql_pool_name_cache:
+            key = (
+                f"{id(self)}:{self._config.get('host')}:"
+                f"{self._config.get('port')}:{self._config.get('database')}:"
+                f"{self._pool_config.get('pool_size')}"
+            )
+            self._mysql_pool_name_cache = "mydborm_" + hashlib.md5(key.encode()).hexdigest()[:16]
+        return self._mysql_pool_name_cache
+
+    def _get_pg_pool(self, cfg: dict):
+        """Lazily create the psycopg2 pool for postgres-family dialects."""
+        if self._pg_pool is None:
+            from psycopg2.pool import ThreadedConnectionPool
+            max_conn = self._pool_config["pool_size"] + self._pool_config.get("max_overflow", 0)
+            self._pg_pool = ThreadedConnectionPool(1, max_conn, **cfg)
+        return self._pg_pool
+
+    def _teardown_pools(self):
+        """Tear down any driver-level pool bound to the current config."""
+        if self._pg_pool is not None:
+            try:
+                self._pg_pool.closeall()
+            except Exception:
+                pass
+            self._pg_pool = None
+        self._mysql_pool_name_cache = None
+
     def _make_connection(self):
         """Create a raw DB connection based on dialect."""
         cfg = {k: v for k, v in self._config.items() if k != "dialect"}
@@ -286,6 +334,16 @@ class ConnectionManager:
                 cfg.setdefault("charset", "utf8mb4")
                 cfg.setdefault("collation", "utf8mb4_unicode_ci")
                 cfg.setdefault("use_unicode", True)
+                if self._pool_config:
+                    # mysql-connector maintains this pool internally, keyed
+                    # by pool_name — a PooledMySQLConnection's .close()
+                    # already returns it to the pool, no other code needs
+                    # to know pooling is active. Hard-capped at pool_size;
+                    # max_overflow/pool_timeout aren't supported by this
+                    # driver's pool (it raises PoolError immediately on
+                    # exhaustion rather than waiting).
+                    cfg["pool_name"] = self._mysql_pool_name()
+                    cfg["pool_size"] = self._pool_config["pool_size"]
                 return mysql.connector.connect(**cfg)
             except ImportError:
                 raise ImportError(
@@ -298,7 +356,14 @@ class ConnectionManager:
                 import psycopg2
                 cfg.setdefault("port", 5433)
                 cfg.setdefault("client_encoding", "utf8")
-                conn = psycopg2.connect(**cfg)
+                if self._pool_config:
+                    # psycopg2's pool has no drop-in connect() equivalent —
+                    # getconn()/putconn() are explicit, see close(). Same
+                    # exhaustion behavior as MySQL: raises immediately
+                    # rather than waiting on max_overflow/pool_timeout.
+                    conn = self._get_pg_pool(cfg).getconn()
+                else:
+                    conn = psycopg2.connect(**cfg)
                 conn.set_client_encoding("UTF8")
                 return conn
             except ImportError:
@@ -322,6 +387,31 @@ class ConnectionManager:
             )
 
     # ------------------------------------------------------------------ #
+    #  Connection reuse / recycling                                        #
+    # ------------------------------------------------------------------ #
+
+    def _recycle_if_stale(self):
+        """Discard the thread's cached connection if it's older than
+        pool_recycle — the standard defense against servers dropping
+        idle connections (e.g. MySQL's wait_timeout), active by default
+        (3600s) even without configure_pool(). A cheap timestamp check,
+        not a network round-trip, since connect()/execute() are called on
+        nearly every ORM operation."""
+        recycle = (self._pool_config or {}).get("pool_recycle", 3600)
+        if not recycle:
+            return
+        conn = getattr(self._local, "conn", None)
+        if conn is not None and time.time() - getattr(self._local, "created_at", 0) > recycle:
+            self.close()
+
+    def _get_or_create_connection(self):
+        self._recycle_if_stale()
+        if not getattr(self._local, "conn", None):
+            self._local.conn = self._make_connection()
+            self._local.created_at = time.time()
+        return self._local.conn
+
+    # ------------------------------------------------------------------ #
     #  Connection context manager                                           #
     # ------------------------------------------------------------------ #
 
@@ -341,11 +431,7 @@ class ConnectionManager:
                 "Call db.configure(...) or db.from_env() first."
             )
 
-        # Reuse existing thread-local connection
-        if not getattr(self._local, "conn", None):
-            self._local.conn = self._make_connection()
-
-        conn = self._local.conn
+        conn = self._get_or_create_connection()
         if self._log_queries:
             conn = _QueryLogConnection(conn, self)
         try:
@@ -364,7 +450,13 @@ class ConnectionManager:
         conn = getattr(self._local, "conn", None)
         if conn:
             try:
-                conn.close()
+                if self.dialect in ("yugabyte", "postgres", "postgresql") and self._pg_pool is not None:
+                    self._pg_pool.putconn(conn)
+                else:
+                    # Already pool-aware for MySQL when pooling is active —
+                    # PooledMySQLConnection.close() returns it to the pool
+                    # instead of closing the socket.
+                    conn.close()
             finally:
                 self._local.conn = None
 
@@ -482,10 +574,7 @@ class ConnectionManager:
                 "Call db.configure(...) or db.from_env() first."
             )
 
-        if not getattr(self._local, "conn", None):
-            self._local.conn = self._make_connection()
-
-        conn = self._local.conn
+        conn = self._get_or_create_connection()
 
         # Disable auto-commit for explicit transaction
         if self.dialect == "mysql":
@@ -517,6 +606,7 @@ class ConnectionManager:
                 "Database not configured.\n"
                 "Call db.configure(...) or db.from_env() first."
             )
+        self._recycle_if_stale()
         if getattr(self._local, "conn", None):
             conn = self._local.conn
             if self._log_queries:
@@ -543,16 +633,29 @@ class ConnectionManager:
         """
         Configure connection pool settings.
 
+        Wires a real driver-level pool for MySQL (mysql-connector's
+        pool_name/pool_size) and postgres-family dialects
+        (psycopg2.pool.ThreadedConnectionPool). Not yet enforced for
+        either driver: pool_timeout (both raise immediately rather than
+        waiting when the pool is exhausted) and max_overflow for MySQL
+        (mysql-connector's pool has a hard pool_size cap only). No effect
+        for SQLite (serverless, pooling doesn't apply).
+
         Args:
             pool_size: number of persistent connections (default 5)
             max_overflow: extra connections allowed above pool_size
-            pool_timeout: seconds to wait for a connection (default 30)
-            pool_recycle: seconds before recycling a connection (default 3600)
+                (postgres-family only — see limitation above)
+            pool_timeout: seconds to wait for a connection (default 30) —
+                not yet enforced, see limitation above
+            pool_recycle: seconds before recycling a connection (default
+                3600) — enforced by mydborm itself, not the driver, so it
+                applies uniformly to every dialect
 
         Usage:
             db.configure(dialect="mysql", ...)
             db.configure_pool(pool_size=10, max_overflow=20)
         """
+        self._teardown_pools()
         self._pool_config = {
             "pool_size":    pool_size,
             "max_overflow": max_overflow,
@@ -575,7 +678,9 @@ class ConnectionManager:
             "dialect":      self.dialect,
             "host":         self._config.get("host"),
             "database":     self._config.get("database"),
-            "pool_config":  getattr(self, "_pool_config", {}),
+            "pool_config":  self._pool_config or {},
+            "pooling_active": bool(self._pool_config) and self.dialect in
+                               ("mysql", "yugabyte", "postgres", "postgresql"),
             "connected":    conn is not None,
             "connection_id": id(conn) if conn else None,
         }
@@ -699,10 +804,7 @@ class ConnectionManager:
 
         The tx object is the connection — use db.execute() inside.
         """
-        if not getattr(self._local, "conn", None):
-            self._local.conn = self._make_connection()
-
-        conn = self._local.conn
+        conn = self._get_or_create_connection()
         if self.dialect == "mysql":
             conn.autocommit = False
 
@@ -724,7 +826,8 @@ class ConnectionManager:
                                 retry_delay: float = 0.5):
         """
         Run fn(conn) inside a transaction, retrying the whole transaction
-        on deadlock with exponential backoff. Non-deadlock exceptions are
+        with exponential backoff on deadlocks and on transient connection
+        loss (e.g. "MySQL server has gone away"). Other exceptions are
         raised immediately without retry.
 
         fn is called again from scratch on each retry, so it must be safe
@@ -757,13 +860,24 @@ class ConnectionManager:
             except Exception as e:
                 last_error  = e
                 err_str     = str(e).lower()
-                is_deadlock = (
+                is_retryable = (
+                    # Deadlocks / lock contention
                     "deadlock"          in err_str or
                     "lock wait timeout" in err_str or
                     "1213"              in err_str or
-                    "1205"              in err_str
+                    "1205"              in err_str or
+                    # Transient connection loss — self.close() above
+                    # already gets a fresh connection each attempt, which
+                    # is exactly the recovery these need.
+                    "gone away"                             in err_str or
+                    "lost connection"                       in err_str or
+                    "server closed the connection unexpectedly" in err_str or
+                    "connection already closed"             in err_str or
+                    "broken pipe"                            in err_str or
+                    "2006"                                   in err_str or
+                    "2013"                                   in err_str
                 )
-                if not is_deadlock:
+                if not is_retryable:
                     raise
                 if attempt < retries:
                     time.sleep(retry_delay * (2 ** attempt))
