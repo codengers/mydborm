@@ -148,11 +148,17 @@ class LazyRelation:
 #  QueryBuilder                                                        #
 # ------------------------------------------------------------------ #
 
-class QueryBuilder:
+class QueryBuilderBase:
     """
-    Fluent chainable query builder for mydborm models.
+    Shared SQL-building core for QueryBuilder (sync) and AsyncQueryBuilder
+    (async) — every chain method here is I/O-free and dialect-agnostic
+    (verified: the only dialect-sensitive piece across this whole class is
+    subquery()'s literal-escaping, routed through the _dialect property
+    below), so it's written once and inherited rather than duplicated.
+    Subclasses supply the terminal/execution methods (all, first, count,
+    update, delete, ...) that actually touch a connection.
 
-    Usage:
+    Usage (via QueryBuilder or AsyncQueryBuilder):
         results = (User.query()
                        .where("active", True)
                        .where("price__gt", 20)
@@ -163,7 +169,7 @@ class QueryBuilder:
 
     Supported operators (append to field name with __):
         __gt    →  >
-        __lt    →  
+        __lt    →
         __gte   →  >=
         __lte   →  <=
         __ne    →  !=
@@ -197,9 +203,16 @@ class QueryBuilder:
         self._or_wheres = []
         self._distinct  = False
 
+    @property
+    def _dialect(self) -> str:
+        """Dialect string for subquery()'s literal-escaping. Overridden by
+        each subclass to point at its own ConnectionManager (sync `db` vs
+        async `async_db`) rather than hardcoded here."""
+        raise NotImplementedError
+
     # ── Column projection ─────────────────────────────────────────── #
 
-    def distinct(self) -> "QueryBuilder":
+    def distinct(self) -> "QueryBuilderBase":
         """Add DISTINCT to the SELECT clause.
 
         Example:
@@ -212,7 +225,7 @@ class QueryBuilder:
         self._distinct = True
         return self
 
-    def select(self, *columns: str) -> "QueryBuilder":
+    def select(self, *columns: str) -> "QueryBuilderBase":
         """Restrict SELECT to specific columns.
 
         Columns are inlined into the SQL text as-is (this is what lets you
@@ -228,7 +241,7 @@ class QueryBuilder:
 
     # ── Filters ──────────────────────────────────────────────────── #
 
-    def where(self, field_op: str, value=None) -> "QueryBuilder":
+    def where(self, field_op: str, value=None) -> "QueryBuilderBase":
         """
         Add a WHERE condition.
 
@@ -276,7 +289,7 @@ class QueryBuilder:
 
         return self
 
-    def where_raw(self, sql: str, *params) -> "QueryBuilder":
+    def where_raw(self, sql: str, *params) -> "QueryBuilderBase":
         """
         Add a raw SQL AND condition — escape hatch for expressions that don't
         fit the built-in operator syntax.
@@ -310,7 +323,7 @@ class QueryBuilder:
         self._wheres.append((sql, list(params)))
         return self
 
-    def or_where_raw(self, sql: str, *params) -> "QueryBuilder":
+    def or_where_raw(self, sql: str, *params) -> "QueryBuilderBase":
         """
         Add a raw SQL OR condition.
 
@@ -330,7 +343,7 @@ class QueryBuilder:
         self._or_wheres.append((sql, list(params)))
         return self
 
-    def or_where(self, field_op: str, value=None) -> "QueryBuilder":
+    def or_where(self, field_op: str, value=None) -> "QueryBuilderBase":
         """
         Add an OR condition.
 
@@ -383,7 +396,7 @@ class QueryBuilder:
     # ── Joins ────────────────────────────────────────────────────── #
 
     def join(self, table: str, on: str,
-             join_type: str = "INNER") -> "QueryBuilder":
+             join_type: str = "INNER") -> "QueryBuilderBase":
         """
         Add a JOIN clause.
 
@@ -409,19 +422,19 @@ class QueryBuilder:
         )
         return self
 
-    def inner_join(self, table: str, on: str) -> "QueryBuilder":
+    def inner_join(self, table: str, on: str) -> "QueryBuilderBase":
         """Shortcut for INNER JOIN."""
         return self.join(table, on, join_type="INNER")
 
-    def left_join(self, table: str, on: str) -> "QueryBuilder":
+    def left_join(self, table: str, on: str) -> "QueryBuilderBase":
         """Shortcut for LEFT JOIN."""
         return self.join(table, on, join_type="LEFT")
 
-    def right_join(self, table: str, on: str) -> "QueryBuilder":
+    def right_join(self, table: str, on: str) -> "QueryBuilderBase":
         """Shortcut for RIGHT JOIN."""
         return self.join(table, on, join_type="RIGHT")
     
-    def include(self, *relation_names: str) -> "QueryBuilder":
+    def include(self, *relation_names: str) -> "QueryBuilderBase":
         """
         Eager load related objects — prevents N+1 queries.
         Loads all related records in a single batch query per relation.
@@ -440,7 +453,7 @@ class QueryBuilder:
         self._includes.extend(relation_names)
         return self
 
-    def group_by(self, *fields: str) -> "QueryBuilder":
+    def group_by(self, *fields: str) -> "QueryBuilderBase":
         """
         Add GROUP BY clause.
 
@@ -462,7 +475,7 @@ class QueryBuilder:
         return self
 
     def having(self, condition: str,
-               *params) -> "QueryBuilder":
+               *params) -> "QueryBuilderBase":
         """
         Add HAVING clause — filter on aggregated values.
         Must be used with group_by().
@@ -508,7 +521,7 @@ class QueryBuilder:
         """
         sql, params = self._build_sql(select=field)
         # Inline params into SQL for subquery use
-        dialect = db.dialect
+        dialect = self._dialect
         for param in params:
             if isinstance(param, str):
                 sql = sql.replace("%s", _escape_sql_literal(param, dialect), 1)
@@ -522,7 +535,7 @@ class QueryBuilder:
 
     # ── Ordering ─────────────────────────────────────────────────── #
 
-    def order_by(self, field: str, desc: bool = False) -> "QueryBuilder":
+    def order_by(self, field: str, desc: bool = False) -> "QueryBuilderBase":
         """
         .order_by("name")           → ORDER BY name ASC
         .order_by("price", desc=True) → ORDER BY price DESC
@@ -537,12 +550,12 @@ class QueryBuilder:
 
     # ── Pagination ───────────────────────────────────────────────── #
 
-    def limit(self, n: int) -> "QueryBuilder":
+    def limit(self, n: int) -> "QueryBuilderBase":
         """Limit number of rows returned."""
         self._limit = n
         return self
 
-    def offset(self, n: int) -> "QueryBuilder":
+    def offset(self, n: int) -> "QueryBuilderBase":
         """Skip first n rows."""
         self._offset = n
         return self
@@ -608,6 +621,16 @@ class QueryBuilder:
             sql += " LIMIT 18446744073709551615 OFFSET " + str(self._offset)
 
         return sql, params
+
+
+class QueryBuilder(QueryBuilderBase):
+    """Sync QueryBuilder — see QueryBuilderBase for the chainable filter/
+    ordering/join API shared with AsyncQueryBuilder. This class adds the
+    terminal methods that actually execute against the database."""
+
+    @property
+    def _dialect(self) -> str:
+        return db.dialect
 
     # ── Execution ────────────────────────────────────────────────── #
 

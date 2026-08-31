@@ -12,6 +12,7 @@
 import os
 import tempfile
 
+import pytest
 import pytest_asyncio
 
 from mydborm.async_db import AsyncBaseModel, async_db
@@ -176,3 +177,58 @@ async def test_async_close_and_reuse_sqlite():
     await async_db.configure(dialect="sqlite", database=async_db._config["database"])
     rows = await AsyncSLProduct.all()
     assert len(rows) == 1
+
+
+# ------------------------------------------------------------------ #
+#  AsyncQueryBuilder                                                    #
+# ------------------------------------------------------------------ #
+
+async def _seed_sl_products():
+    await AsyncSLProduct.create(name="Apple",  price=1.50, active=True)
+    await AsyncSLProduct.create(name="Banana", price=0.75, active=True)
+    await AsyncSLProduct.create(name="Cherry", price=3.00, active=False)
+
+
+async def test_async_query_where_sqlite():
+    await _seed_sl_products()
+    rows = await AsyncSLProduct.query().where("active", True).order_by("price").all()
+    assert [r["name"] for r in rows] == ["Banana", "Apple"]
+
+
+async def test_async_query_aggregates_sqlite():
+    await _seed_sl_products()
+    assert await AsyncSLProduct.query().count() == 3
+    total = await AsyncSLProduct.query().sum("price")
+    assert abs(total - 5.25) < 0.01
+
+
+async def test_async_query_update_delete_sqlite():
+    await _seed_sl_products()
+    affected = await AsyncSLProduct.query().where("active", False).update(active=True)
+    assert affected == 1
+    deleted = await AsyncSLProduct.query().where("name", "Banana").delete()
+    assert deleted == 1
+    assert await AsyncSLProduct.count() == 2
+
+
+async def test_async_query_paginate_sqlite():
+    await _seed_sl_products()
+    page = await AsyncSLProduct.query().order_by("price").paginate(page=2, per_page=2)
+    assert page["total"] == 3
+    assert page["pages"] == 2
+    assert len(page["data"]) == 1
+
+
+async def test_async_query_subquery_escapes_quote_sqlite():
+    await _seed_sl_products()
+    await AsyncSLProduct.create(name="O'Brien", price=2.0, active=True)
+    sq = AsyncSLProduct.query().where("name", "O'Brien").subquery("id")
+    assert "O''Brien" in sq
+    rows = await AsyncSLProduct.query().where("id__in", sq).all()
+    assert len(rows) == 1
+    assert rows[0]["name"] == "O'Brien"
+
+
+async def test_async_query_invalid_identifier_rejected_sqlite():
+    with pytest.raises(ValueError, match="Invalid field name"):
+        AsyncSLProduct.query().order_by("id; DROP TABLE async_sl_products; --")
