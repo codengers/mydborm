@@ -413,3 +413,132 @@ async def test_async_query_paginate_clamps_page_below_one():
     await _seed_products()
     page = await AsyncProduct.query().order_by("price").paginate(page=0, per_page=2)
     assert page["page"] == 1
+
+
+# ------------------------------------------------------------------ #
+#  Async transactions                                                   #
+# ------------------------------------------------------------------ #
+
+async def test_async_transaction_commits():
+    async with async_db.transaction() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO async_products (name, price, active) VALUES (%s,%s,%s)",
+                ["TxCommit", 1.0, True],
+            )
+    assert await AsyncProduct.count(name="TxCommit") == 1
+
+
+async def test_async_transaction_rolls_back():
+    with pytest.raises(ValueError):
+        async with async_db.transaction() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO async_products (name, price, active) VALUES (%s,%s,%s)",
+                    ["TxRollback", 1.0, True],
+                )
+            raise ValueError("boom")
+    assert await AsyncProduct.count(name="TxRollback") == 0
+
+
+async def test_async_savepoint_partial_rollback():
+    async with async_db.transaction() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO async_products (name, price, active) VALUES (%s,%s,%s)",
+                ["Alice", 1.0, True],
+            )
+        try:
+            async with async_db.savepoint(conn):
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "INSERT INTO async_products (name, price, active) VALUES (%s,%s,%s)",
+                        ["Bob", 1.0, True],
+                    )
+                raise ValueError("bob failed")
+        except ValueError:
+            pass
+    assert await AsyncProduct.count(name="Alice") == 1
+    assert await AsyncProduct.count(name="Bob") == 0
+
+
+async def test_async_nested_transaction_with_conn_uses_savepoint():
+    async with async_db.transaction() as conn:
+        async with async_db.nested_transaction(conn):
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO async_products (name, price, active) VALUES (%s,%s,%s)",
+                    ["Nested", 1.0, True],
+                )
+    assert await AsyncProduct.count(name="Nested") == 1
+
+
+async def test_async_nested_transaction_without_conn_starts_new():
+    async with async_db.nested_transaction() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO async_products (name, price, active) VALUES (%s,%s,%s)",
+                ["Fresh", 1.0, True],
+            )
+    assert await AsyncProduct.count(name="Fresh") == 1
+
+
+async def test_async_bulk_transaction_commits():
+    async with async_db.bulk_transaction() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO async_products (name, price, active) VALUES (%s,%s,%s)",
+                ["Bulk1", 1.0, True],
+            )
+            await cur.execute(
+                "INSERT INTO async_products (name, price, active) VALUES (%s,%s,%s)",
+                ["Bulk2", 1.0, True],
+            )
+    assert await AsyncProduct.count() == 2
+
+
+async def test_async_transaction_with_retry_success():
+    async def do_insert(conn):
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO async_products (name, price, active) VALUES (%s,%s,%s)",
+                ["Retried", 1.0, True],
+            )
+    await async_db.transaction_with_retry(do_insert, retries=3)
+    assert await AsyncProduct.count(name="Retried") == 1
+
+
+async def test_async_transaction_with_retry_raises_on_non_retryable():
+    async def do_fail(conn):
+        raise ValueError("invalid input")
+    with pytest.raises(ValueError, match="invalid input"):
+        await async_db.transaction_with_retry(do_fail, retries=2)
+
+
+async def test_async_transaction_with_retry_recovers_from_connection_loss():
+    attempts = []
+
+    async def do_transfer(conn):
+        attempts.append(1)
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO async_products (name, price, active) VALUES (%s,%s,%s)",
+                ["GoneAway", 1.0, True],
+            )
+        if len(attempts) < 3:
+            raise RuntimeError("MySQL server has gone away")
+
+    await async_db.transaction_with_retry(do_transfer, retries=3, retry_delay=0.01)
+    assert len(attempts) == 3
+    assert await AsyncProduct.count(name="GoneAway") == 1
+
+
+async def test_async_transaction_with_retry_exhausted_raises():
+    from mydborm.exceptions import RetryExhaustedError
+
+    async def always_fails(conn):
+        raise RuntimeError("Deadlock found when trying to get lock")
+
+    with pytest.raises(RetryExhaustedError) as exc_info:
+        await async_db.transaction_with_retry(always_fails, retries=2, retry_delay=0.01)
+    assert exc_info.value.attempts == 3

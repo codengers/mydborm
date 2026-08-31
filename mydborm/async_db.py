@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from .fields import Field
-from .exceptions import NotConfiguredError, UnsupportedDialectError
+from .exceptions import NotConfiguredError, UnsupportedDialectError, RetryExhaustedError
 from .model import QueryBuilderBase, _validate_identifier
 
 _SQL_LOGGER = logging.getLogger("mydborm.sql")
@@ -334,6 +334,125 @@ class AsyncConnectionManager:
             except Exception:
                 await conn.rollback()
                 raise
+
+    # ------------------------------------------------------------------ #
+    #  Transactions                                                        #
+    # ------------------------------------------------------------------ #
+
+    @asynccontextmanager
+    async def transaction(self):
+        """
+        Explicit transaction — all statements in the block commit
+        together, any exception rolls back the whole thing.
+
+        No autocommit toggling needed: the MySQL pool is created with
+        autocommit=False (see _create_pool), aiopg's connections default
+        to manual-transaction mode (matching psycopg2), and the SQLite
+        pool opens connections without isolation_level=None — so all
+        three dialects are already non-autocommit, identical to what
+        connect() already relies on for its own commit()/rollback().
+
+        Unlike connect(), there's no thread-local-style implicit
+        connection sharing (doesn't translate to asyncio — no "current
+        coroutine" storage without extra plumbing). Use the yielded
+        conn directly for every statement in the block; async_db.execute()
+        would acquire a *different* connection from the pool.
+
+        async with async_db.transaction() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute("INSERT INTO users ...")
+                await cur.execute("INSERT INTO profiles ...")
+            # both committed together, or both rolled back
+        """
+        if self._pool is None:
+            raise NotConfiguredError(
+                "Async DB not configured.\n"
+                "Call: await async_db.configure(...) first."
+            )
+        async with self._pool.acquire() as conn:
+            try:
+                yield conn
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
+
+    @asynccontextmanager
+    async def savepoint(self, conn, name: str = None):
+        """
+        Savepoint within an active transaction. `conn` must be the
+        connection yielded by an enclosing transaction() block — async
+        has no implicit way to find it (see transaction()'s docstring).
+
+        async with async_db.transaction() as conn:
+            ...
+            async with async_db.savepoint(conn):
+                ...  # only this part rolls back on error
+        """
+        import uuid
+        sp_name = name or f"sp_{uuid.uuid4().hex[:8]}"
+        async with conn.cursor() as cur:
+            await cur.execute(f"SAVEPOINT {sp_name}")
+        try:
+            yield sp_name
+            async with conn.cursor() as cur:
+                await cur.execute(f"RELEASE SAVEPOINT {sp_name}")
+        except Exception:
+            async with conn.cursor() as cur:
+                await cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
+            raise
+
+    def nested_transaction(self, conn=None):
+        """
+        Savepoint if `conn` (from an outer transaction()) is given,
+        else a fresh transaction().
+        """
+        return self.savepoint(conn) if conn is not None else self.transaction()
+
+    @asynccontextmanager
+    async def bulk_transaction(self):
+        """Atomic transaction across multiple model operations — same as
+        transaction(); kept as a separate name for parity with the sync
+        API, which differs here only because of thread-local connection
+        reuse quirks that don't apply to asyncio."""
+        async with self.transaction() as conn:
+            yield conn
+
+    async def transaction_with_retry(self, fn, retries: int = 3,
+                                      retry_delay: float = 0.5):
+        """
+        Run `await fn(conn)` inside a transaction, retrying with
+        exponential backoff on deadlock or transient connection loss.
+        fn is re-invoked from scratch on each retry, so it must be safe
+        to re-run (no side effects outside the transaction).
+        """
+        last_error = None
+        max_attempts = retries + 1
+        for attempt in range(max_attempts):
+            try:
+                async with self.transaction() as conn:
+                    return await fn(conn)
+            except Exception as e:
+                last_error = e
+                err_str = str(e).lower()
+                is_retryable = (
+                    "deadlock" in err_str or "lock wait timeout" in err_str or
+                    "1213" in err_str or "1205" in err_str or
+                    "gone away" in err_str or "lost connection" in err_str or
+                    "server closed the connection unexpectedly" in err_str or
+                    "connection already closed" in err_str or
+                    "broken pipe" in err_str or "2006" in err_str or "2013" in err_str
+                )
+                if not is_retryable:
+                    raise
+                if attempt < retries:
+                    await asyncio.sleep(retry_delay * (2 ** attempt))
+                    continue
+                raise RetryExhaustedError(
+                    f"Transaction failed after {retries + 1} attempts",
+                    attempts=retries + 1,
+                    last_error=last_error,
+                ) from e
 
     # ------------------------------------------------------------------ #
     #  Raw SQL                                                             #
