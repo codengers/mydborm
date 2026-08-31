@@ -542,3 +542,80 @@ async def test_async_transaction_with_retry_exhausted_raises():
     with pytest.raises(RetryExhaustedError) as exc_info:
         await async_db.transaction_with_retry(always_fails, retries=2, retry_delay=0.01)
     assert exc_info.value.attempts == 3
+
+
+# ------------------------------------------------------------------ #
+#  Async lifecycle hooks                                                #
+# ------------------------------------------------------------------ #
+
+hook_calls = []
+
+
+class AsyncHookProduct(AsyncBaseModel):
+    __tablename__ = "async_hook_products"
+    id     = IntField(primary_key=True)
+    name   = StrField(max_length=100, nullable=False)
+    price  = FloatField(nullable=False)
+    active = BoolField(default=True)
+
+    @classmethod
+    def before_create(cls, validated):
+        hook_calls.append(("before_create", dict(validated)))
+        validated["name"] = validated["name"].upper()
+        return validated
+
+    @classmethod
+    async def after_create(cls, new_id, validated):
+        hook_calls.append(("after_create", new_id))
+
+    @classmethod
+    def before_update(cls, data, where):
+        hook_calls.append(("before_update", dict(data), dict(where)))
+
+    @classmethod
+    def after_update(cls, rows_affected, data, where):
+        hook_calls.append(("after_update", rows_affected))
+
+    @classmethod
+    def before_delete(cls, where):
+        hook_calls.append(("before_delete", dict(where)))
+
+    @classmethod
+    def after_delete(cls, rows_deleted, where):
+        hook_calls.append(("after_delete", rows_deleted))
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _hook_table(setup_async_db):
+    await AsyncHookProduct.create_table()
+    hook_calls.clear()
+    yield
+    await AsyncHookProduct.drop_table()
+
+
+async def test_async_before_create_hook_transforms_data():
+    pid = await AsyncHookProduct.create(name="widget", price=1.0, active=True)
+    row = await AsyncHookProduct.get(id=pid)
+    assert row["name"] == "WIDGET"
+    assert hook_calls[0][0] == "before_create"
+
+
+async def test_async_after_create_hook_can_be_async():
+    pid = await AsyncHookProduct.create(name="gadget", price=1.0, active=True)
+    assert ("after_create", pid) in hook_calls
+
+
+async def test_async_update_hooks_fire():
+    pid = await AsyncHookProduct.create(name="a", price=1.0, active=True)
+    hook_calls.clear()
+    await AsyncHookProduct.update({"price": 2.0}, id=pid)
+    events = [c[0] for c in hook_calls]
+    assert events == ["before_update", "after_update"]
+
+
+async def test_async_delete_hooks_fire():
+    pid = await AsyncHookProduct.create(name="b", price=1.0, active=True)
+    hook_calls.clear()
+    await AsyncHookProduct.delete(id=pid)
+    events = [c[0] for c in hook_calls]
+    assert events == ["before_delete", "after_delete"]
