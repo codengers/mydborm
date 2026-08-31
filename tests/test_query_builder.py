@@ -608,3 +608,54 @@ def test_paginate_empty_table():
     assert result["pages"] == 1
     assert result["data"]  == []
 
+
+# ------------------------------------------------------------------ #
+#  for_update()                                                        #
+# ------------------------------------------------------------------ #
+
+def test_for_update_appends_clause():
+    qb = Item.query().where("active", True).for_update()
+    sql, _ = qb._build_sql()
+    assert sql.rstrip().endswith("FOR UPDATE")
+
+
+def test_for_update_within_transaction():
+    with db.transaction() as conn:
+        rows = Item.query().where("active", True).for_update().all()
+        assert len(rows) > 0
+
+
+def test_for_update_blocks_concurrent_transaction():
+    import threading
+    holder_ready   = threading.Event()
+    release_holder = threading.Event()
+    result = {}
+
+    item_id = Item.query().where("active", True).first()["id"]
+
+    def holder():
+        with db.transaction() as conn:
+            Item.query().where("id", item_id).for_update().all()
+            holder_ready.set()
+            release_holder.wait(timeout=5)
+
+    def second():
+        holder_ready.wait(timeout=5)
+        import time
+        start = time.time()
+        with db.transaction() as conn:
+            Item.query().where("id", item_id).for_update().all()
+        result["waited"] = time.time() - start
+
+    t1 = threading.Thread(target=holder)
+    t2 = threading.Thread(target=second)
+    t1.start()
+    t2.start()
+    import time
+    time.sleep(0.5)
+    release_holder.set()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+
+    assert result.get("waited", 0) > 0.3  # blocked until holder released
+

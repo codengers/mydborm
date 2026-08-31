@@ -434,11 +434,19 @@ class ConnectionManager:
         conn = self._get_or_create_connection()
         if self._log_queries:
             conn = _QueryLogConnection(conn, self)
+        # Inside an active transaction()/bulk_transaction() on this thread's
+        # connection, don't commit/rollback here — that would prematurely
+        # end (and release any locks held by) the outer transaction. This
+        # is what makes for_update() actually hold across multiple reads
+        # inside a `with db.transaction():` block.
+        nested = getattr(self._local, "in_transaction", False)
         try:
             yield conn
-            conn.commit()
+            if not nested:
+                conn.commit()
         except Exception:
-            conn.rollback()
+            if not nested:
+                conn.rollback()
             raise
 
     def clear_queries(self):
@@ -582,14 +590,23 @@ class ConnectionManager:
         else:
             conn.autocommit = False
 
+        # Only the outermost transaction()/bulk_transaction() call commits
+        # or rolls back — a nested call (or a connect()-based read/write,
+        # e.g. via QueryBuilder, happening inside this block) must not
+        # end the transaction early.
+        already_in_txn = getattr(self._local, "in_transaction", False)
+        self._local.in_transaction = True
         try:
             yield conn
-            conn.commit()
+            if not already_in_txn:
+                conn.commit()
         except Exception:
-            conn.rollback()
+            if not already_in_txn:
+                conn.rollback()
             raise
         finally:
-            if self.dialect != "mysql":
+            self._local.in_transaction = already_in_txn
+            if not already_in_txn and self.dialect != "mysql":
                 conn.autocommit = True
 
 
@@ -808,14 +825,19 @@ class ConnectionManager:
         if self.dialect == "mysql":
             conn.autocommit = False
 
+        already_in_txn = getattr(self._local, "in_transaction", False)
+        self._local.in_transaction = True
         try:
             yield conn
-            conn.commit()
+            if not already_in_txn:
+                conn.commit()
         except Exception:
-            conn.rollback()
+            if not already_in_txn:
+                conn.rollback()
             raise
         finally:
-            if self.dialect == "mysql":
+            self._local.in_transaction = already_in_txn
+            if not already_in_txn and self.dialect == "mysql":
                 conn.autocommit = False
 
     # ------------------------------------------------------------------ #

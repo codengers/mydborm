@@ -430,6 +430,73 @@ class TimestampMixin:
         return BaseModel.update.__func__(cls, data, **kwargs)
 
 
+# ================================================================== #
+#  OptimisticLockMixin                                                 #
+# ================================================================== #
+
+class OptimisticLockMixin:
+    """
+    Adds optimistic-locking (version column) support to a BaseModel.
+    update() requires the current version in the WHERE kwargs and raises
+    OptimisticLockError if zero rows match — the record was modified
+    concurrently (version changed) or no longer exists.
+
+    Usage:
+        class Account(BaseModel, OptimisticLockMixin):
+            __tablename__ = "accounts"
+            id      = IntField(primary_key=True)
+            balance = FloatField(nullable=False)
+
+        Account.create_table()
+        aid = Account.create(balance=100.0)     # version = 0
+        row = Account.get(id=aid)
+
+        Account.update({"balance": 150.0}, id=aid, version=row["version"])
+        # succeeds, version becomes 1
+
+        Account.update({"balance": 200.0}, id=aid, version=row["version"])
+        # raises OptimisticLockError — row["version"] (0) is now stale
+    """
+
+    VERSION_FIELD = "version"
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        from .fields import IntField
+        _inject_field(cls, cls.VERSION_FIELD, IntField(nullable=False, default=0))
+        cls.create = classmethod(OptimisticLockMixin.create.__func__)
+        cls.update = classmethod(OptimisticLockMixin.update.__func__)
+
+    @classmethod
+    def create(cls, **kwargs) -> int:
+        kwargs.setdefault(cls.VERSION_FIELD, 0)
+        from .model import BaseModel
+        return BaseModel.create.__func__(cls, **kwargs)
+
+    @classmethod
+    def update(cls, data: dict, **where_kwargs) -> int:
+        if cls.VERSION_FIELD not in where_kwargs:
+            raise ValueError(
+                f"{cls.__name__}.update() requires '{cls.VERSION_FIELD}' in "
+                "the WHERE kwargs for optimistic locking — fetch the row "
+                "first to get its current version."
+            )
+        expected_version = where_kwargs[cls.VERSION_FIELD]
+        data = dict(data)
+        data[cls.VERSION_FIELD] = expected_version + 1
+        from .model import BaseModel
+        rows_affected = BaseModel.update.__func__(cls, data, **where_kwargs)
+        if rows_affected == 0:
+            from .exceptions import OptimisticLockError
+            raise OptimisticLockError(
+                f"{cls.__name__} update failed — no row matched id/version "
+                f"(expected version={expected_version}); the record may "
+                "have been modified concurrently or no longer exists.",
+                model=cls.__name__, expected_version=expected_version,
+            )
+        return rows_affected
+
+
 def _get_dialect_cls_async():
     from .async_db import async_db
     from .dialects import get_dialect

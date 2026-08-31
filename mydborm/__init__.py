@@ -65,6 +65,7 @@ from .exceptions import (
     QueryError,
     RecordNotFoundError,
     MultipleRecordsError,
+    OptimisticLockError,
     ValidationError,
     FieldRequiredError,
     FieldTypeError,
@@ -97,7 +98,7 @@ from .migrations import (
     apply_migration_file,
     list_migration_files,
 )
-from .mixins import SoftDeleteMixin, AuditMixin, TimestampMixin
+from .mixins import SoftDeleteMixin, AuditMixin, TimestampMixin, OptimisticLockMixin
 from .migrate import MigrationEngine, MigrationResult, TypeMapper, ObjectMigrator
 from .async_db import async_db, AsyncBaseModel, AsyncQueryBuilder
 
@@ -127,6 +128,7 @@ __all__ = [
     "QueryError",
     "RecordNotFoundError",
     "MultipleRecordsError",
+    "OptimisticLockError",
     "ValidationError",
     "FieldRequiredError",
     "FieldTypeError",
@@ -181,6 +183,7 @@ __all__ = [
     "SoftDeleteMixin",
     "AuditMixin",
     "TimestampMixin",
+    "OptimisticLockMixin",
     "MigrationEngine",
     "MigrationResult",
     "TypeMapper",
