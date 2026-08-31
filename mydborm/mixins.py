@@ -428,3 +428,301 @@ class TimestampMixin:
         data[cls.UPDATED_AT_FIELD] = _now_str()
         from .model import BaseModel
         return BaseModel.update.__func__(cls, data, **kwargs)
+
+
+def _get_dialect_cls_async():
+    from .async_db import async_db
+    from .dialects import get_dialect
+    return get_dialect(async_db.dialect)
+
+
+# ================================================================== #
+#  AsyncSoftDeleteMixin                                                #
+# ================================================================== #
+
+class AsyncSoftDeleteMixin:
+    """
+    Async equivalent of SoftDeleteMixin, for AsyncBaseModel subclasses.
+
+    Usage:
+        class Post(AsyncBaseModel, AsyncSoftDeleteMixin):
+            __tablename__ = "posts"
+            id    = IntField(primary_key=True)
+            title = StrField(max_length=200, nullable=False)
+
+        await Post.create_table()
+        pid = await Post.create(title="Hello")
+        await Post.soft_delete(id=pid)
+        await Post.all()               # excludes deleted rows
+        await Post.all_with_deleted()
+
+    Only supports fresh table creation via create_table() — the injected
+    field is already in cls._fields by the time create_table() runs, so
+    no override is needed there (unlike sync, which also retrofits the
+    column onto an already-existing table via _add_col_to_db).
+
+    is_deleted() is a classmethod taking the row dict, not a bound
+    instance method like sync's — AsyncBaseModel CRUD returns plain
+    dicts, not an instance wrapper (same reasoning as async relationships).
+    """
+
+    SOFT_DELETE_FIELD = "deleted_at"
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        from .fields import DateTimeField
+        _inject_field(cls, cls.SOFT_DELETE_FIELD, DateTimeField(nullable=True))
+        cls.all                = classmethod(AsyncSoftDeleteMixin.all.__func__)
+        cls.filter              = classmethod(AsyncSoftDeleteMixin.filter.__func__)
+        cls.get                 = classmethod(AsyncSoftDeleteMixin.get.__func__)
+        cls.query                = classmethod(AsyncSoftDeleteMixin.query.__func__)
+        cls.query_with_deleted  = classmethod(AsyncSoftDeleteMixin.query_with_deleted.__func__)
+        cls.all_with_deleted    = classmethod(AsyncSoftDeleteMixin.all_with_deleted.__func__)
+        cls.only_deleted        = classmethod(AsyncSoftDeleteMixin.only_deleted.__func__)
+        cls.soft_delete         = classmethod(AsyncSoftDeleteMixin.soft_delete.__func__)
+        cls.restore              = classmethod(AsyncSoftDeleteMixin.restore.__func__)
+        cls.purge                = classmethod(AsyncSoftDeleteMixin.purge.__func__)
+        cls.purge_all_deleted    = classmethod(AsyncSoftDeleteMixin.purge_all_deleted.__func__)
+        cls.count                = classmethod(AsyncSoftDeleteMixin.count.__func__)
+        cls.exists                = classmethod(AsyncSoftDeleteMixin.exists.__func__)
+        cls.is_deleted            = classmethod(AsyncSoftDeleteMixin.is_deleted.__func__)
+
+    @classmethod
+    def _qb(cls):
+        from .fields import DateTimeField
+        from .async_db import AsyncQueryBuilder
+        _inject_field(cls, cls.SOFT_DELETE_FIELD, DateTimeField(nullable=True))
+        return AsyncQueryBuilder(cls)
+
+    @classmethod
+    async def all(cls) -> list:
+        return await cls._qb().where(f"{cls.SOFT_DELETE_FIELD}__null", True).all()
+
+    @classmethod
+    async def filter(cls, **kwargs) -> list:
+        q = cls._qb().where(f"{cls.SOFT_DELETE_FIELD}__null", True)
+        for k, v in kwargs.items():
+            q = q.where(k, v)
+        return await q.all()
+
+    @classmethod
+    async def get(cls, **kwargs):
+        q = cls._qb().where(f"{cls.SOFT_DELETE_FIELD}__null", True)
+        for k, v in kwargs.items():
+            q = q.where(k, v)
+        return await q.first()
+
+    @classmethod
+    def query(cls):
+        """Chainable AsyncQueryBuilder pre-filtered to exclude soft-deleted rows."""
+        return cls._qb().where(f"{cls.SOFT_DELETE_FIELD}__null", True)
+
+    @classmethod
+    def query_with_deleted(cls):
+        return cls._qb()
+
+    @classmethod
+    async def all_with_deleted(cls) -> list:
+        return await cls.query_with_deleted().all()
+
+    @classmethod
+    async def only_deleted(cls) -> list:
+        return await cls._qb().where(f"{cls.SOFT_DELETE_FIELD}__null", False).all()
+
+    @classmethod
+    async def soft_delete(cls, **kwargs) -> int:
+        from .async_db import AsyncBaseModel
+        return await AsyncBaseModel.update.__func__(
+            cls, {cls.SOFT_DELETE_FIELD: _now_str()}, **kwargs
+        )
+
+    @classmethod
+    async def restore(cls, **kwargs) -> int:
+        from .async_db import AsyncBaseModel
+        return await AsyncBaseModel.update.__func__(
+            cls, {cls.SOFT_DELETE_FIELD: None}, **kwargs
+        )
+
+    @classmethod
+    async def purge(cls, **kwargs) -> int:
+        from .async_db import AsyncBaseModel
+        return await AsyncBaseModel.delete.__func__(cls, **kwargs)
+
+    @classmethod
+    async def purge_all_deleted(cls) -> int:
+        deleted = await cls.only_deleted()
+        if not deleted:
+            return 0
+        pk  = next((n for n, f in cls._fields.items() if f.primary_key), "id")
+        ids = [r[pk] for r in deleted]
+        placeholders = ", ".join(["%s"] * len(ids))
+        from .async_db import async_db
+        dialect = _get_dialect_cls_async()
+        sql = dialect.delete_sql(cls._table, f"{pk} IN ({placeholders})")
+        return await async_db.execute(sql, ids)
+
+    @classmethod
+    async def count(cls, **kwargs) -> int:
+        q = cls._qb().where(f"{cls.SOFT_DELETE_FIELD}__null", True)
+        for k, v in kwargs.items():
+            q = q.where(k, v)
+        return await q.count()
+
+    @classmethod
+    async def exists(cls, **kwargs) -> bool:
+        return (await cls.count(**kwargs)) > 0
+
+    @classmethod
+    def is_deleted(cls, row: dict) -> bool:
+        return row.get(cls.SOFT_DELETE_FIELD) is not None
+
+
+# ================================================================== #
+#  AsyncAuditMixin                                                     #
+# ================================================================== #
+
+class AsyncAuditMixin:
+    """
+    Async equivalent of AuditMixin. age()/was_updated() are classmethods
+    taking the row dict, not bound instance methods like sync's.
+    """
+
+    CREATED_AT_FIELD = "created_at"
+    UPDATED_AT_FIELD = "updated_at"
+    CREATED_BY_FIELD = "created_by"
+    UPDATED_BY_FIELD = "updated_by"
+    _current_user_id: Optional[int] = None
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        from .fields import DateTimeField, IntField
+        _inject_field(cls, cls.CREATED_AT_FIELD, DateTimeField(nullable=True))
+        _inject_field(cls, cls.UPDATED_AT_FIELD, DateTimeField(nullable=True))
+        _inject_field(cls, cls.CREATED_BY_FIELD, IntField(nullable=True))
+        _inject_field(cls, cls.UPDATED_BY_FIELD, IntField(nullable=True))
+        cls.create      = classmethod(AsyncAuditMixin.create.__func__)
+        cls.update       = classmethod(AsyncAuditMixin.update.__func__)
+        cls.get           = classmethod(AsyncAuditMixin.get.__func__)
+        cls.all            = classmethod(AsyncAuditMixin.all.__func__)
+        cls.filter          = classmethod(AsyncAuditMixin.filter.__func__)
+        cls.age              = classmethod(AsyncAuditMixin.age.__func__)
+        cls.was_updated       = classmethod(AsyncAuditMixin.was_updated.__func__)
+
+    @classmethod
+    def set_current_user(cls, user_id: Optional[int]):
+        """Set current user ID for audit tracking."""
+        cls._current_user_id = user_id
+
+    @classmethod
+    def _qb(cls):
+        from .async_db import AsyncQueryBuilder
+        return AsyncQueryBuilder(cls)
+
+    @classmethod
+    async def get(cls, **kwargs):
+        q = cls._qb()
+        for k, v in kwargs.items():
+            q = q.where(k, v)
+        return await q.first()
+
+    @classmethod
+    async def all(cls) -> list:
+        return await cls._qb().all()
+
+    @classmethod
+    async def filter(cls, **kwargs) -> list:
+        q = cls._qb()
+        for k, v in kwargs.items():
+            q = q.where(k, v)
+        return await q.all()
+
+    @classmethod
+    async def create(cls, **kwargs) -> int:
+        now = _now_str()
+        kwargs.setdefault(cls.CREATED_AT_FIELD, now)
+        kwargs.setdefault(cls.UPDATED_AT_FIELD, now)
+        if cls._current_user_id is not None:
+            kwargs.setdefault(cls.CREATED_BY_FIELD, cls._current_user_id)
+            kwargs.setdefault(cls.UPDATED_BY_FIELD, cls._current_user_id)
+        from .async_db import AsyncBaseModel
+        return await AsyncBaseModel.create.__func__(cls, **kwargs)
+
+    @classmethod
+    async def update(cls, data: dict, **kwargs) -> int:
+        data = dict(data)
+        data[cls.UPDATED_AT_FIELD] = _now_str()
+        if cls._current_user_id is not None:
+            data[cls.UPDATED_BY_FIELD] = cls._current_user_id
+        from .async_db import AsyncBaseModel
+        return await AsyncBaseModel.update.__func__(cls, data, **kwargs)
+
+    @classmethod
+    def age(cls, row: dict) -> Optional[datetime.timedelta]:
+        """Return age of a row since creation. row is a dict, as
+        returned by get()/all()/filter()."""
+        created = row.get(cls.CREATED_AT_FIELD)
+        if created is None:
+            return None
+        if isinstance(created, str):
+            created = datetime.datetime.strptime(created, "%Y-%m-%d %H:%M:%S")
+        return datetime.datetime.now() - created
+
+    @classmethod
+    def was_updated(cls, row: dict) -> bool:
+        created = row.get(cls.CREATED_AT_FIELD)
+        updated = row.get(cls.UPDATED_AT_FIELD)
+        if created is None or updated is None:
+            return False
+        return str(created) != str(updated)
+
+
+# ================================================================== #
+#  AsyncTimestampMixin                                                 #
+# ================================================================== #
+
+class AsyncTimestampMixin:
+    """Async equivalent of TimestampMixin — just created_at/updated_at."""
+
+    CREATED_AT_FIELD = "created_at"
+    UPDATED_AT_FIELD = "updated_at"
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        from .fields import DateTimeField
+        _inject_field(cls, cls.CREATED_AT_FIELD, DateTimeField(nullable=True))
+        _inject_field(cls, cls.UPDATED_AT_FIELD, DateTimeField(nullable=True))
+        cls.create = classmethod(AsyncTimestampMixin.create.__func__)
+        cls.update = classmethod(AsyncTimestampMixin.update.__func__)
+        cls.get    = classmethod(AsyncTimestampMixin.get.__func__)
+        cls.all    = classmethod(AsyncTimestampMixin.all.__func__)
+
+    @classmethod
+    def _qb(cls):
+        from .async_db import AsyncQueryBuilder
+        return AsyncQueryBuilder(cls)
+
+    @classmethod
+    async def get(cls, **kwargs):
+        q = cls._qb()
+        for k, v in kwargs.items():
+            q = q.where(k, v)
+        return await q.first()
+
+    @classmethod
+    async def all(cls) -> list:
+        return await cls._qb().all()
+
+    @classmethod
+    async def create(cls, **kwargs) -> int:
+        now = _now_str()
+        kwargs.setdefault(cls.CREATED_AT_FIELD, now)
+        kwargs.setdefault(cls.UPDATED_AT_FIELD, now)
+        from .async_db import AsyncBaseModel
+        return await AsyncBaseModel.create.__func__(cls, **kwargs)
+
+    @classmethod
+    async def update(cls, data: dict, **kwargs) -> int:
+        data = dict(data)
+        data[cls.UPDATED_AT_FIELD] = _now_str()
+        from .async_db import AsyncBaseModel
+        return await AsyncBaseModel.update.__func__(cls, data, **kwargs)

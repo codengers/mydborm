@@ -11,6 +11,7 @@
 #               and full async CRUD operations.
 # =============================================================================
 
+import asyncio
 import pytest
 import pytest_asyncio
 from mydborm.async_db import async_db, AsyncBaseModel
@@ -751,3 +752,120 @@ async def test_async_many_to_many():
     )
     assert len(books) == 2
     await async_db.execute("DROP TABLE async_rel_join")
+
+
+# ------------------------------------------------------------------ #
+#  Async mixins                                                         #
+# ------------------------------------------------------------------ #
+
+from mydborm.mixins import AsyncSoftDeleteMixin, AsyncAuditMixin, AsyncTimestampMixin  # noqa: E402
+
+
+class AsyncSDPost(AsyncBaseModel, AsyncSoftDeleteMixin):
+    __tablename__ = "async_sd_posts"
+    id    = IntField(primary_key=True)
+    title = StrField(max_length=100, nullable=False)
+
+
+class AsyncAuditOrder(AsyncBaseModel, AsyncAuditMixin):
+    __tablename__ = "async_audit_orders"
+    id    = IntField(primary_key=True)
+    total = FloatField(nullable=False)
+
+
+class AsyncTSComment(AsyncBaseModel, AsyncTimestampMixin):
+    __tablename__ = "async_ts_comments"
+    id      = IntField(primary_key=True)
+    content = StrField(max_length=200, nullable=False)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _mixin_tables(setup_async_db):
+    await AsyncSDPost.create_table()
+    await AsyncAuditOrder.create_table()
+    await AsyncTSComment.create_table()
+    yield
+    await AsyncTSComment.drop_table()
+    await AsyncAuditOrder.drop_table()
+    await AsyncSDPost.drop_table()
+
+
+async def test_async_soft_delete_excludes_by_default():
+    pid = await AsyncSDPost.create(title="Hello")
+    await AsyncSDPost.soft_delete(id=pid)
+    assert await AsyncSDPost.all() == []
+    assert len(await AsyncSDPost.all_with_deleted()) == 1
+
+
+async def test_async_soft_delete_restore():
+    pid = await AsyncSDPost.create(title="Hello")
+    await AsyncSDPost.soft_delete(id=pid)
+    await AsyncSDPost.restore(id=pid)
+    row = await AsyncSDPost.get(id=pid)
+    assert row is not None
+    assert AsyncSDPost.is_deleted(row) is False
+
+
+async def test_async_soft_delete_purge():
+    pid = await AsyncSDPost.create(title="Hello")
+    await AsyncSDPost.soft_delete(id=pid)
+    await AsyncSDPost.purge(id=pid)
+    assert await AsyncSDPost.all_with_deleted() == []
+
+
+async def test_async_soft_delete_query_excludes_deleted():
+    pid = await AsyncSDPost.create(title="Hello")
+    await AsyncSDPost.soft_delete(id=pid)
+    assert await AsyncSDPost.query().count() == 0
+    assert await AsyncSDPost.query_with_deleted().count() == 1
+
+
+async def test_async_soft_delete_filter_only_deleted_purge_all():
+    p1 = await AsyncSDPost.create(title="Keep")
+    p2 = await AsyncSDPost.create(title="Gone")
+    await AsyncSDPost.soft_delete(id=p2)
+    assert len(await AsyncSDPost.filter(title="Keep")) == 1
+    assert len(await AsyncSDPost.only_deleted()) == 1
+    assert await AsyncSDPost.exists(id=p1) is True
+    n = await AsyncSDPost.purge_all_deleted()
+    assert n == 1
+    assert await AsyncSDPost.all_with_deleted() == [await AsyncSDPost.get(id=p1)]
+
+
+async def test_async_audit_sets_timestamps_and_user():
+    AsyncAuditOrder.set_current_user(42)
+    oid = await AsyncAuditOrder.create(total=99.99)
+    row = await AsyncAuditOrder.get(id=oid)
+    assert row["created_at"] is not None
+    assert row["created_by"] == 42
+    AsyncAuditOrder.set_current_user(None)
+
+
+async def test_async_audit_filter_and_age():
+    oid = await AsyncAuditOrder.create(total=1.0)
+    rows = await AsyncAuditOrder.filter(total=1.0)
+    assert len(rows) == 1
+    row = await AsyncAuditOrder.get(id=oid)
+    assert AsyncAuditOrder.age(row) is not None
+
+
+async def test_async_audit_update_sets_updated_by():
+    AsyncAuditOrder.set_current_user(1)
+    oid = await AsyncAuditOrder.create(total=1.0)
+    AsyncAuditOrder.set_current_user(2)
+    await asyncio.sleep(1)  # _now_str() has second-level granularity
+    await AsyncAuditOrder.update({"total": 2.0}, id=oid)
+    row = await AsyncAuditOrder.get(id=oid)
+    assert row["updated_by"] == 2
+    assert AsyncAuditOrder.was_updated(row) is True
+    AsyncAuditOrder.set_current_user(None)
+
+
+async def test_async_timestamp_mixin_sets_created_updated():
+    cid = await AsyncTSComment.create(content="hi")
+    row = await AsyncTSComment.get(id=cid)
+    assert row["created_at"] is not None
+    assert row["updated_at"] is not None
+    await AsyncTSComment.update({"content": "bye"}, id=cid)
+    updated = await AsyncTSComment.get(id=cid)
+    assert updated["content"] == "bye"
