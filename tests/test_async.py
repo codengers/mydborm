@@ -228,3 +228,188 @@ async def test_async_full_workflow():
 
     await AsyncProduct.delete(id=pid)
     assert await AsyncProduct.count() == 0
+
+
+# ------------------------------------------------------------------ #
+#  AsyncQueryBuilder                                                    #
+# ------------------------------------------------------------------ #
+
+async def _seed_products():
+    await AsyncProduct.create(name="Apple",      price=1.50, active=True)
+    await AsyncProduct.create(name="Banana",     price=0.75, active=True)
+    await AsyncProduct.create(name="Cherry",     price=3.00, active=False)
+    await AsyncProduct.create(name="Date",       price=5.00, active=True)
+    await AsyncProduct.create(name="Elderberry", price=8.00, active=False)
+
+
+async def test_async_query_where():
+    await _seed_products()
+    rows = await AsyncProduct.query().where("active", True).all()
+    assert len(rows) == 3
+    assert all(r["active"] for r in rows)
+
+
+async def test_async_query_where_operator():
+    await _seed_products()
+    rows = await AsyncProduct.query().where("price__gt", 3.0).all()
+    names = {r["name"] for r in rows}
+    assert names == {"Date", "Elderberry"}
+
+
+async def test_async_query_where_in():
+    await _seed_products()
+    rows = await AsyncProduct.query().where("name__in", ["Apple", "Date"]).all()
+    assert len(rows) == 2
+
+
+async def test_async_query_or_where():
+    await _seed_products()
+    rows = (await AsyncProduct.query()
+                  .or_where("name", "Apple")
+                  .or_where("name", "Banana")
+                  .all())
+    names = {r["name"] for r in rows}
+    assert names == {"Apple", "Banana"}
+
+
+async def test_async_query_order_by():
+    await _seed_products()
+    rows = await AsyncProduct.query().order_by("price", desc=True).all()
+    prices = [r["price"] for r in rows]
+    assert prices == sorted(prices, reverse=True)
+
+
+async def test_async_query_limit_offset():
+    await _seed_products()
+    rows = await AsyncProduct.query().order_by("price").limit(2).offset(1).all()
+    assert len(rows) == 2
+
+
+async def test_async_query_first():
+    await _seed_products()
+    row = await AsyncProduct.query().order_by("price").first()
+    assert row["name"] == "Banana"
+
+
+async def test_async_query_first_none():
+    row = await AsyncProduct.query().where("name", "Nonexistent").first()
+    assert row is None
+
+
+async def test_async_query_count():
+    await _seed_products()
+    assert await AsyncProduct.query().where("active", True).count() == 3
+
+
+async def test_async_query_exists():
+    await _seed_products()
+    assert await AsyncProduct.query().where("name", "Apple").exists() is True
+    assert await AsyncProduct.query().where("name", "Nope").exists() is False
+
+
+async def test_async_query_sum_avg_min_max():
+    await _seed_products()
+    total = await AsyncProduct.query().sum("price")
+    assert abs(total - 18.25) < 0.01
+    avg = await AsyncProduct.query().where("active", True).avg("price")
+    assert abs(avg - (1.50 + 0.75 + 5.00) / 3) < 0.01
+    assert await AsyncProduct.query().min("price") == 0.75
+    assert await AsyncProduct.query().max("price") == 8.00
+
+
+async def test_async_query_update():
+    await _seed_products()
+    affected = await AsyncProduct.query().where("active", False).update(active=True)
+    assert affected == 2
+    assert await AsyncProduct.query().where("active", True).count() == 5
+
+
+async def test_async_query_delete():
+    await _seed_products()
+    deleted = await AsyncProduct.query().where("active", False).delete()
+    assert deleted == 2
+    assert await AsyncProduct.count() == 3
+
+
+async def test_async_query_paginate():
+    await _seed_products()
+    page = await AsyncProduct.query().order_by("price").paginate(page=1, per_page=2)
+    assert page["total"] == 5
+    assert page["pages"] == 3
+    assert len(page["data"]) == 2
+
+
+async def test_async_query_select_columns():
+    await _seed_products()
+    rows = await AsyncProduct.query().select("name").all()
+    assert "name" in rows[0]
+
+
+async def test_async_query_distinct():
+    await AsyncProduct.create(name="Dup", price=1.0, active=True)
+    await AsyncProduct.create(name="Dup", price=1.0, active=True)
+    rows = await AsyncProduct.query().select("name").distinct().all()
+    assert len(rows) == 1
+
+
+async def test_async_query_repr():
+    r = repr(AsyncProduct.query().where("active", True))
+    assert "AsyncQueryBuilder" in r
+    assert "active" in r
+
+
+async def test_async_query_invalid_identifier_rejected():
+    with pytest.raises(ValueError, match="Invalid field name"):
+        AsyncProduct.query().where("id; DROP TABLE async_products; --", 1)
+
+
+async def test_async_query_subquery_escapes_injection():
+    await _seed_products()
+    payload = "nonexistent' OR '1'='1"
+    sq = AsyncProduct.query().where("name", payload).subquery("id")
+    assert "''1''=''1" in sq
+    rows = await AsyncProduct.query().where("id__in", sq).all()
+    assert rows == []
+
+
+async def test_async_query_include_not_implemented():
+    with pytest.raises(NotImplementedError):
+        await AsyncProduct.query().include("something").all()
+
+
+async def test_async_query_count_with_group_by():
+    await _seed_products()
+    # 2 groups: active=True, active=False
+    total = await AsyncProduct.query().group_by("active").count()
+    assert total == 2
+
+
+async def test_async_query_update_with_or_where():
+    await _seed_products()
+    affected = (await AsyncProduct.query()
+                      .or_where("name", "Apple")
+                      .or_where("name", "Banana")
+                      .update(active=False))
+    assert affected == 2
+
+
+async def test_async_query_delete_with_or_where():
+    await _seed_products()
+    deleted = (await AsyncProduct.query()
+                     .or_where("name", "Apple")
+                     .or_where("name", "Banana")
+                     .delete())
+    assert deleted == 2
+    assert await AsyncProduct.count() == 3
+
+
+async def test_async_query_update_no_kwargs_is_noop():
+    await _seed_products()
+    affected = await AsyncProduct.query().where("active", True).update()
+    assert affected == 0
+
+
+async def test_async_query_paginate_clamps_page_below_one():
+    await _seed_products()
+    page = await AsyncProduct.query().order_by("price").paginate(page=0, per_page=2)
+    assert page["page"] == 1

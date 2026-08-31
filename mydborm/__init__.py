@@ -99,6 +99,7 @@ from .migrations import (
 )
 from .mixins import SoftDeleteMixin, AuditMixin, TimestampMixin
 from .migrate import MigrationEngine, MigrationResult, TypeMapper, ObjectMigrator
+from .async_db import async_db, AsyncBaseModel, AsyncQueryBuilder
 
 __version__ = "1.12.0"
 __author__  = "Codengers"
@@ -194,5 +195,9 @@ __all__ = [
     "generate",
     "apply_migration_file",
     "list_migration_files",
+    # Async
+    "async_db",
+    "AsyncBaseModel",
+    "AsyncQueryBuilder",
 ]
 

@@ -19,6 +19,7 @@ from typing import Optional
 
 from .fields import Field
 from .exceptions import NotConfiguredError, UnsupportedDialectError
+from .model import QueryBuilderBase, _validate_identifier
 
 _SQL_LOGGER = logging.getLogger("mydborm.sql")
 
@@ -388,6 +389,186 @@ async_db = AsyncConnectionManager()
 
 
 # ------------------------------------------------------------------ #
+#  AsyncQueryBuilder                                                    #
+# ------------------------------------------------------------------ #
+
+class AsyncQueryBuilder(QueryBuilderBase):
+    """Async QueryBuilder — see QueryBuilderBase (model.py) for the
+    chainable filter/ordering/join API shared with the sync QueryBuilder.
+    This class adds the terminal methods that actually execute against
+    the database.
+
+    .include() is inherited and accepted, but eager loading isn't wired
+    up yet — async relationship declarations don't exist yet either, so
+    calling .all() with any .include() active raises NotImplementedError
+    rather than silently doing nothing.
+    """
+
+    @property
+    def _dialect(self) -> str:
+        return async_db.dialect
+
+    # ── Execution ────────────────────────────────────────────────── #
+
+    async def all(self) -> list:
+        """Execute and return all matching rows as list of dicts."""
+        if self._includes:
+            raise NotImplementedError(
+                "Eager loading via .include() is not yet supported for "
+                "async models."
+            )
+        sql, params = self._build_sql()
+        return await self._model._fetch(sql + ";", params)
+
+    async def first(self) -> Optional[dict]:
+        """Return first matching row or None."""
+        original_limit = self._limit
+        self._limit    = 1
+        sql, params    = self._build_sql()
+        self._limit    = original_limit
+        rows = await self._model._fetch(sql + ";", params)
+        return rows[0] if rows else None
+
+    async def count(self) -> int:
+        """Return count of matching rows or groups."""
+        if self._group_by:
+            # Count number of groups using subquery
+            inner_sql, params = self._build_sql(
+                select=", ".join(self._group_by)
+            )
+            sql  = "SELECT COUNT(*) FROM (" + inner_sql + ") AS _grp"
+            rows = await self._model._fetch(sql + ";", params)
+        else:
+            sql, params = self._build_sql(select="COUNT(*)")
+            rows = await self._model._fetch(sql + ";", params)
+        if rows:
+            val = list(rows[0].values())[0]
+            return int(val)
+        return 0
+
+    async def exists(self) -> bool:
+        """Return True if any row matches."""
+        return (await self.count()) > 0
+
+    async def sum(self, field: str) -> float:
+        """Return SUM of a field."""
+        _validate_identifier(field)
+        sql, params = self._build_sql(select=f"SUM({field})")
+        rows = await self._model._fetch(sql + ";", params)
+        result = list(rows[0].values())[0]
+        return float(result) if result is not None else 0.0
+
+    async def avg(self, field: str) -> float:
+        """Return AVG of a field."""
+        _validate_identifier(field)
+        sql, params = self._build_sql(select=f"AVG({field})")
+        rows = await self._model._fetch(sql + ";", params)
+        result = list(rows[0].values())[0]
+        return float(result) if result is not None else 0.0
+
+    async def min(self, field: str):
+        """Return MIN of a field."""
+        _validate_identifier(field)
+        sql, params = self._build_sql(select=f"MIN({field})")
+        rows = await self._model._fetch(sql + ";", params)
+        return list(rows[0].values())[0]
+
+    async def max(self, field: str):
+        """Return MAX of a field."""
+        _validate_identifier(field)
+        sql, params = self._build_sql(select=f"MAX({field})")
+        rows = await self._model._fetch(sql + ";", params)
+        return list(rows[0].values())[0]
+
+    async def update(self, **kwargs) -> int:
+        """Bulk-update matching rows. Returns affected row count.
+
+        Example:
+            await User.query().where("active", False).update(role="guest")
+        """
+        if not kwargs:
+            return 0
+        table   = self._model._table
+        set_sql = ", ".join(f"{col} = %s" for col in kwargs)
+        params  = list(kwargs.values())
+        sql     = f"UPDATE {table} SET {set_sql}"
+
+        and_clauses = [w[0] for w in self._wheres]
+        or_clauses  = [w[0] for w in self._or_wheres]
+        conditions  = []
+        if and_clauses:
+            conditions.append(" AND ".join(and_clauses))
+        if or_clauses:
+            conditions.append("(" + " OR ".join(or_clauses) + ")")
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        for _, vals in self._wheres:
+            params.extend(vals)
+        for _, vals in self._or_wheres:
+            params.extend(vals)
+
+        async with async_db.connect() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(sql + ";", params)
+                return cur.rowcount
+
+    async def delete(self) -> int:
+        """Delete all matching rows. Returns affected row count."""
+        table  = self._model._table
+        params = []
+        sql    = f"DELETE FROM {table}"
+
+        and_clauses = [w[0] for w in self._wheres]
+        or_clauses  = [w[0] for w in self._or_wheres]
+        conditions  = []
+        if and_clauses:
+            conditions.append(" AND ".join(and_clauses))
+        if or_clauses:
+            conditions.append("(" + " OR ".join(or_clauses) + ")")
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
+        for _, vals in self._wheres:
+            params.extend(vals)
+        for _, vals in self._or_wheres:
+            params.extend(vals)
+
+        async with async_db.connect() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(sql + ";", params)
+                return cur.rowcount
+
+    async def paginate(self, page: int = 1, per_page: int = 20) -> dict:
+        """Return a paginated result dict.
+
+        Returns:
+            {
+                "data"    : list of rows,
+                "total"   : total matching rows,
+                "pages"   : total number of pages,
+                "page"    : current page,
+                "per_page": rows per page,
+            }
+        """
+        if page < 1:
+            page = 1
+        total  = await self.count()
+        pages  = max(1, -(-total // per_page))   # ceiling division
+        offset = (page - 1) * per_page
+        data   = await self.limit(per_page).offset(offset).all()
+        return {
+            "data":     data,
+            "total":    total,
+            "pages":    pages,
+            "page":     page,
+            "per_page": per_page,
+        }
+
+    def __repr__(self):
+        sql, params = self._build_sql()
+        return f"<AsyncQueryBuilder sql={sql!r} params={params!r}>"
+
+
+# ------------------------------------------------------------------ #
 #  AsyncModelMeta                                                      #
 # ------------------------------------------------------------------ #
 
@@ -563,6 +744,20 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
             " WHERE " + where + ";"
         )
         return await async_db.execute(sql, values)
+
+    @classmethod
+    def query(cls) -> "AsyncQueryBuilder":
+        """Start a chainable query.
+
+        Usage:
+            await (User.query()
+                       .where("active", True)
+                       .where("price__gt", 20)
+                       .order_by("name")
+                       .limit(10)
+                       .all())
+        """
+        return AsyncQueryBuilder(cls)
 
     # ------------------------------------------------------------------ #
     #  Helpers                                                             #
