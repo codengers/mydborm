@@ -101,6 +101,7 @@ from .migrations import (
 from .mixins import SoftDeleteMixin, AuditMixin, TimestampMixin, OptimisticLockMixin
 from .migrate import MigrationEngine, MigrationResult, TypeMapper, ObjectMigrator
 from .async_db import async_db, AsyncBaseModel, AsyncQueryBuilder
+from .seed import seed, seed_from_file, seed_async, seed_from_file_async
 
 __version__ = "1.12.0"
 __author__  = "Codengers"
@@ -202,5 +203,10 @@ __all__ = [
     "async_db",
     "AsyncBaseModel",
     "AsyncQueryBuilder",
+    # Data seeding
+    "seed",
+    "seed_from_file",
+    "seed_async",
+    "seed_from_file_async",
 ]
 

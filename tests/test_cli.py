@@ -859,3 +859,69 @@ def test_migrate_db_dry_run_shows_unmapped_type_warning():
         with _db.connect() as conn:
             conn.cursor().execute("DROP TABLE IF EXISTS cli_mig_unmapped")
         _db.close()
+
+
+# ------------------------------------------------------------------ #
+#  seed                                                                #
+# ------------------------------------------------------------------ #
+
+def test_seed_command_inserts_rows():
+    import json
+    import tempfile
+    from mydborm import db as _db
+
+    _db.configure(dialect="mysql", host="127.0.0.1", port=3307, user="root",
+                  password=os.environ.get("DB_PASSWORD", "root"), database="testdb")
+    with _db.connect() as conn:
+        conn.cursor().execute("DROP TABLE IF EXISTS mig_users")
+    from tests.test_migrations import MigUser
+    MigUser.create_table()
+    _db.close()
+
+    fd, path = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump([
+                {"username": "alice", "email": "alice@example.com", "active": True},
+                {"username": "bob",   "email": "bob@example.com",   "active": True},
+            ], f)
+
+        result = runner.invoke(cli, [
+            "seed", "--model", "tests.test_migrations.MigUser", "--file", path
+        ] + DB_OPTS)
+        assert result.exit_code == 0
+        assert "Seeded 2" in result.output
+
+        _db.configure(dialect="mysql", host="127.0.0.1", port=3307, user="root",
+                      password=os.environ.get("DB_PASSWORD", "root"), database="testdb")
+        assert MigUser.count() == 2
+
+        # second run skips — table not empty
+        result2 = runner.invoke(cli, [
+            "seed", "--model", "tests.test_migrations.MigUser", "--file", path
+        ] + DB_OPTS)
+        assert result2.exit_code == 0
+        assert "Skipped" in result2.output
+        assert MigUser.count() == 2
+    finally:
+        os.remove(path)
+        with _db.connect() as conn:
+            conn.cursor().execute("DROP TABLE IF EXISTS mig_users")
+        _db.close()
+
+
+def test_seed_command_bad_model_path():
+    result = runner.invoke(cli, [
+        "seed", "--model", "tests.nonexistent.NotAModel", "--file", "x.json"
+    ] + DB_OPTS)
+    assert result.exit_code == 1
+    assert "Could not import model" in result.output
+
+
+def test_seed_command_bad_file():
+    result = runner.invoke(cli, [
+        "seed", "--model", "tests.test_migrations.MigUser", "--file", "does_not_exist.json"
+    ] + DB_OPTS)
+    assert result.exit_code == 1
+    assert "Error" in result.output
