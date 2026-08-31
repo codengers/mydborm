@@ -357,4 +357,36 @@ def test_transaction_with_retry_exhausted_raises_retry_exhausted_error():
         db.transaction_with_retry(always_deadlocks, retries=2, retry_delay=0.01)
 
     assert exc_info.value.attempts == 3
+
+
+def test_transaction_with_retry_recovers_from_connection_loss():
+    """transaction_with_retry() must also retry transient connection-loss
+    errors (e.g. a server restart mid-transaction), not just deadlocks —
+    it already gets a fresh connection each attempt via self.close(),
+    which is exactly the recovery a dropped connection needs."""
+    attempts = []
+
+    def do_transfer(conn):
+        attempts.append(1)
+        db.execute(
+            "INSERT INTO tx_accounts (name, balance) VALUES (%s,%s)",
+            ["gone_away_user", 100]
+        )
+        if len(attempts) < 3:
+            raise RuntimeError("MySQL server has gone away")
+
+    db.transaction_with_retry(do_transfer, retries=3, retry_delay=0.01)
+
+    assert len(attempts) == 3
+    assert Account.count(name="gone_away_user") == 1
+
+
+def test_transaction_with_retry_connection_loss_exhausted_raises():
+    def always_drops(conn):
+        raise RuntimeError("Lost connection to MySQL server during query")
+
+    with pytest.raises(RetryExhaustedError) as exc_info:
+        db.transaction_with_retry(always_drops, retries=2, retry_delay=0.01)
+
+    assert exc_info.value.attempts == 3
     assert isinstance(exc_info.value.last_error, RuntimeError)
