@@ -232,3 +232,52 @@ async def test_async_query_subquery_escapes_quote_sqlite():
 async def test_async_query_invalid_identifier_rejected_sqlite():
     with pytest.raises(ValueError, match="Invalid field name"):
         AsyncSLProduct.query().order_by("id; DROP TABLE async_sl_products; --")
+
+
+# ------------------------------------------------------------------ #
+#  Async transactions                                                   #
+# ------------------------------------------------------------------ #
+
+async def test_async_transaction_commits_sqlite():
+    async with async_db.transaction() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO async_sl_products (name, price, active) VALUES (%s,%s,%s)",
+                ["TxCommit", 1.0, True],
+            )
+    rows = await AsyncSLProduct.filter(name="TxCommit")
+    assert len(rows) == 1
+
+
+async def test_async_transaction_rolls_back_sqlite():
+    with pytest.raises(ValueError):
+        async with async_db.transaction() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "INSERT INTO async_sl_products (name, price, active) VALUES (%s,%s,%s)",
+                    ["TxRollback", 1.0, True],
+                )
+            raise ValueError("boom")
+    rows = await AsyncSLProduct.filter(name="TxRollback")
+    assert len(rows) == 0
+
+
+async def test_async_savepoint_partial_rollback_sqlite():
+    async with async_db.transaction() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO async_sl_products (name, price, active) VALUES (%s,%s,%s)",
+                ["Alice", 1.0, True],
+            )
+        try:
+            async with async_db.savepoint(conn):
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "INSERT INTO async_sl_products (name, price, active) VALUES (%s,%s,%s)",
+                        ["Bob", 1.0, True],
+                    )
+                raise ValueError("bob failed")
+        except ValueError:
+            pass
+    assert len(await AsyncSLProduct.filter(name="Alice")) == 1
+    assert len(await AsyncSLProduct.filter(name="Bob")) == 0
