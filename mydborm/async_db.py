@@ -1120,6 +1120,76 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
                 return cur.rowcount
 
     # ------------------------------------------------------------------ #
+    #  Relationships                                                       #
+    # ------------------------------------------------------------------ #
+    #
+    # No LazyRelation-descriptor equivalent: a descriptor's __get__ can't
+    # be `async def`, so transparent lazy-loading-on-attribute-access has
+    # no clean async translation. These are explicit classmethods taking
+    # the row dict instead of sync's bound instance methods, since
+    # AsyncBaseModel.get()/all()/filter() return plain dicts, not an
+    # instance wrapper to hang a method off of. .include() still raises
+    # NotImplementedError (see AsyncQueryBuilder.all()) — it depends on
+    # a declarative relation registry that doesn't exist for async models.
+
+    @classmethod
+    def _pk_field(cls) -> str:
+        for fname, field in cls._fields.items():
+            if field.primary_key:
+                return fname
+        raise ValueError("No primary key on " + cls.__name__ + ".")
+
+    @classmethod
+    async def has_many(cls, row: dict, related_model, foreign_key: str = None) -> list:
+        """
+        author = await AsyncAuthor.get(id=1)
+        books  = await AsyncAuthor.has_many(author, AsyncBook, foreign_key="author_id")
+        """
+        fk = foreign_key or (cls.__name__.lower() + "_id")
+        pk = row.get(cls._pk_field())
+        return await related_model.query().where(fk, pk).all()
+
+    @classmethod
+    async def belongs_to(cls, row: dict, related_model, foreign_key: str = None) -> Optional[dict]:
+        """
+        book   = await AsyncBook.get(id=1)
+        author = await AsyncBook.belongs_to(book, AsyncAuthor, foreign_key="author_id")
+        """
+        fk = foreign_key or (related_model.__name__.lower() + "_id")
+        fk_val = row.get(fk)
+        if fk_val is None:
+            return None
+        return await related_model.get(id=fk_val)
+
+    @classmethod
+    async def many_to_many(
+        cls,
+        row: dict,
+        related_model,
+        join_table: str,
+        source_key: str = None,
+        target_key: str = None,
+    ) -> list:
+        """
+        student = await AsyncStudent.get(id=1)
+        courses = await AsyncStudent.many_to_many(
+            student, AsyncCourse, join_table="student_courses",
+            source_key="student_id", target_key="course_id",
+        )
+        """
+        src_key = source_key or (cls.__name__.lower() + "_id")
+        tgt_key = target_key or (related_model.__name__.lower() + "_id")
+        pk  = row.get(cls._pk_field())
+        tbl = related_model._table
+        sql = (
+            "SELECT " + tbl + ".* FROM " + tbl +
+            " INNER JOIN " + join_table +
+            " ON " + tbl + ".id = " + join_table + "." + tgt_key +
+            " WHERE " + join_table + "." + src_key + " = %s;"
+        )
+        return await related_model._fetch(sql, [pk])
+
+    # ------------------------------------------------------------------ #
     #  Helpers                                                             #
     # ------------------------------------------------------------------ #
 
