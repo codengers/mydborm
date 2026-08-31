@@ -12,6 +12,7 @@
 # =============================================================================
 
 import asyncio
+import inspect
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -20,6 +21,16 @@ from typing import Optional
 from .fields import Field
 from .exceptions import NotConfiguredError, UnsupportedDialectError, RetryExhaustedError
 from .model import QueryBuilderBase, _validate_identifier
+
+async def _call_hook(hook, *args):
+    """Call a lifecycle hook that may be defined sync or async — a hook
+    that doesn't need to await anything shouldn't be forced to be
+    `async def`."""
+    result = hook(*args)
+    if inspect.isawaitable(result):
+        result = await result
+    return result
+
 
 _SQL_LOGGER = logging.getLogger("mydborm.sql")
 
@@ -772,6 +783,11 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
             value = kwargs.get(fname, field.default)
             validated[fname] = field.validate(value)
 
+        if hasattr(cls, "before_create") and callable(getattr(cls, "before_create")):
+            result = await _call_hook(cls.before_create, validated)
+            if result is not None:
+                validated = result
+
         columns      = ", ".join(validated.keys())
         placeholders = ", ".join(["%s"] * len(validated))
         sql = (
@@ -781,7 +797,12 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
         async with async_db.connect() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(sql, list(validated.values()))
-                return cur.lastrowid
+                new_id = cur.lastrowid
+
+        if hasattr(cls, "after_create") and callable(getattr(cls, "after_create")):
+            await _call_hook(cls.after_create, new_id, validated)
+
+        return new_id
 
     # ------------------------------------------------------------------ #
     #  Read                                                                #
@@ -841,6 +862,11 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
     @classmethod
     async def update(cls, data: dict, **where_kwargs) -> int:
         """Update rows matching where_kwargs with data."""
+        if hasattr(cls, "before_update") and callable(getattr(cls, "before_update")):
+            result = await _call_hook(cls.before_update, data, where_kwargs)
+            if result is not None:
+                data = result
+
         set_clause    = ", ".join(k + " = %s" for k in data.keys())
         where, wvals  = cls._build_where(where_kwargs)
         sql = (
@@ -848,7 +874,12 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
             " SET " + set_clause +
             " WHERE " + where + ";"
         )
-        return await async_db.execute(sql, list(data.values()) + wvals)
+        rows_affected = await async_db.execute(sql, list(data.values()) + wvals)
+
+        if hasattr(cls, "after_update") and callable(getattr(cls, "after_update")):
+            await _call_hook(cls.after_update, rows_affected, data, where_kwargs)
+
+        return rows_affected
 
     # ------------------------------------------------------------------ #
     #  Delete                                                              #
@@ -857,12 +888,20 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
     @classmethod
     async def delete(cls, **kwargs) -> int:
         """Delete rows matching kwargs."""
+        if hasattr(cls, "before_delete") and callable(getattr(cls, "before_delete")):
+            await _call_hook(cls.before_delete, kwargs)
+
         where, values = cls._build_where(kwargs)
         sql = (
             "DELETE FROM " + cls._table +
             " WHERE " + where + ";"
         )
-        return await async_db.execute(sql, values)
+        rows_deleted = await async_db.execute(sql, values)
+
+        if hasattr(cls, "after_delete") and callable(getattr(cls, "after_delete")):
+            await _call_hook(cls.after_delete, rows_deleted, kwargs)
+
+        return rows_deleted
 
     @classmethod
     def query(cls) -> "AsyncQueryBuilder":
