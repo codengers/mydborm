@@ -281,3 +281,21 @@ async def test_async_savepoint_partial_rollback_sqlite():
             pass
     assert len(await AsyncSLProduct.filter(name="Alice")) == 1
     assert len(await AsyncSLProduct.filter(name="Bob")) == 0
+
+
+# ------------------------------------------------------------------ #
+#  Async bulk operations                                               #
+# ------------------------------------------------------------------ #
+
+async def test_async_bulk_create_update_delete_sqlite():
+    n = await AsyncSLProduct.bulk_create([
+        {"name": "A", "price": 1.0, "active": True},
+        {"name": "B", "price": 2.0, "active": True},
+    ])
+    assert n == 2
+    rows = await AsyncSLProduct.all()
+    ids = [r["id"] for r in rows]
+    n = await AsyncSLProduct.bulk_update([{"id": ids[0], "price": 9.0}])
+    assert n == 1
+    n = await AsyncSLProduct.bulk_delete(ids)
+    assert n == 2

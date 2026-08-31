@@ -918,6 +918,208 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
         return AsyncQueryBuilder(cls)
 
     # ------------------------------------------------------------------ #
+    #  Bulk operations                                                     #
+    # ------------------------------------------------------------------ #
+
+    @classmethod
+    async def bulk_create(cls, records: list) -> int:
+        """Insert multiple rows in a single query. Returns rows inserted."""
+        if not records:
+            return 0
+
+        first = {
+            k: v for k, v in records[0].items()
+            if k in cls._fields and not cls._fields[k].primary_key
+        }
+        columns = list(first.keys())
+
+        validated_rows = []
+        for record in records:
+            row = {}
+            for col in columns:
+                field = cls._fields.get(col)
+                row[col] = field.validate(record.get(col, field.default)) if field else record.get(col)
+            validated_rows.append(row)
+
+        col_str      = ", ".join(columns)
+        placeholders = "(" + ", ".join(["%s"] * len(columns)) + ")"
+        all_placeholders = ", ".join([placeholders] * len(validated_rows))
+        sql = (
+            "INSERT INTO " + cls._table +
+            " (" + col_str + ") VALUES " + all_placeholders + ";"
+        )
+        flat_values = []
+        for row in validated_rows:
+            flat_values.extend(row.values())
+
+        async with async_db.connect() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(sql, flat_values)
+                return cur.rowcount
+
+    @classmethod
+    async def bulk_update(cls, records: list, key: str = "id") -> int:
+        """Update multiple rows. Each record must contain the key field."""
+        if not records:
+            return 0
+
+        total = 0
+        async with async_db.connect() as conn:
+            async with conn.cursor() as cur:
+                for record in records:
+                    key_val = record.get(key)
+                    if key_val is None:
+                        raise ValueError(
+                            "bulk_update: every record must include "
+                            "the key field '" + key + "'."
+                        )
+                    data = {k: v for k, v in record.items() if k != key}
+                    if not data:
+                        continue
+                    set_clause = ", ".join(k + " = %s" for k in data.keys())
+                    sql = (
+                        "UPDATE " + cls._table +
+                        " SET " + set_clause +
+                        " WHERE " + key + " = %s;"
+                    )
+                    await cur.execute(sql, list(data.values()) + [key_val])
+                    total += cur.rowcount
+        return total
+
+    @classmethod
+    async def bulk_upsert(
+        cls,
+        records: list,
+        conflict_key: str = "id",
+        update_fields: list = None,
+        create_index: bool = True,
+    ) -> int:
+        """Insert records or update on conflict — dialect aware.
+
+        MySQL -> INSERT ... ON DUPLICATE KEY UPDATE
+        YugabyteDB/PostgreSQL -> INSERT ... ON CONFLICT DO UPDATE
+        """
+        if not records:
+            return 0
+
+        dialect = async_db.dialect
+
+        field = cls._fields.get(conflict_key)
+        if create_index and field and not field.primary_key:
+            idx_name = "uq_" + cls._table + "_" + conflict_key
+            try:
+                async with async_db.connect() as conn:
+                    async with conn.cursor() as cur:
+                        if dialect == "mysql":
+                            await cur.execute(
+                                "SELECT COUNT(*) FROM information_schema.statistics "
+                                "WHERE table_schema = DATABASE() "
+                                "AND table_name = %s AND index_name = %s",
+                                [cls._table, idx_name]
+                            )
+                            if (await cur.fetchone())[0] == 0:
+                                await cur.execute(
+                                    "ALTER TABLE `" + cls._table +
+                                    "` ADD UNIQUE INDEX `" + idx_name +
+                                    "` (`" + conflict_key + "`)"
+                                )
+                        elif dialect == "sqlite":
+                            await cur.execute(
+                                "SELECT COUNT(*) FROM sqlite_master "
+                                "WHERE type = 'index' AND name = %s",
+                                [idx_name]
+                            )
+                            if (await cur.fetchone())[0] == 0:
+                                await cur.execute(
+                                    "CREATE UNIQUE INDEX `" + idx_name +
+                                    "` ON `" + cls._table +
+                                    "` (`" + conflict_key + "`)"
+                                )
+                        else:
+                            await cur.execute(
+                                "SELECT COUNT(*) FROM pg_indexes "
+                                "WHERE tablename = %s AND indexname = %s",
+                                [cls._table, idx_name]
+                            )
+                            if (await cur.fetchone())[0] == 0:
+                                await cur.execute(
+                                    'CREATE UNIQUE INDEX "' + idx_name +
+                                    '" ON "' + cls._table +
+                                    '" ("' + conflict_key + '")'
+                                )
+            except Exception:
+                pass  # index may already exist
+
+        first   = {
+            k: v for k, v in records[0].items()
+            if k in cls._fields and not cls._fields[k].primary_key
+        }
+        columns = list(first.keys())
+
+        if update_fields is None:
+            update_fields = [c for c in columns if c != conflict_key]
+
+        if not update_fields:
+            return await cls.bulk_create(records)
+
+        validated_rows = []
+        for record in records:
+            row = {}
+            for col in columns:
+                fld = cls._fields.get(col)
+                row[col] = fld.validate(record.get(col, fld.default)) if fld else record.get(col)
+            validated_rows.append(row)
+
+        col_str      = ", ".join(columns)
+        placeholders = "(" + ", ".join(["%s"] * len(columns)) + ")"
+        all_ph       = ", ".join([placeholders] * len(validated_rows))
+
+        flat_values = []
+        for row in validated_rows:
+            flat_values.extend(row.values())
+
+        if dialect == "mysql":
+            update_clause = ", ".join(
+                "`" + f + "` = VALUES(`" + f + "`)" for f in update_fields
+            )
+            sql = (
+                "INSERT INTO `" + cls._table + "` "
+                "(" + col_str + ") VALUES " + all_ph +
+                " ON DUPLICATE KEY UPDATE " + update_clause + ";"
+            )
+        else:
+            update_clause = ", ".join(
+                '"' + f + '" = EXCLUDED."' + f + '"' for f in update_fields
+            )
+            sql = (
+                'INSERT INTO "' + cls._table + '" '
+                "(" + col_str + ") VALUES " + all_ph +
+                ' ON CONFLICT ("' + conflict_key + '") '
+                "DO UPDATE SET " + update_clause + ";"
+            )
+
+        async with async_db.connect() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(sql, flat_values)
+                return cur.rowcount
+
+    @classmethod
+    async def bulk_delete(cls, ids: list, key: str = "id") -> int:
+        """Delete multiple rows by a list of key values."""
+        if not ids:
+            return 0
+
+        placeholders = ", ".join(["%s"] * len(ids))
+        sql = (
+            "DELETE FROM " + cls._table +
+            " WHERE " + key + " IN (" + placeholders + ");"
+        )
+        async with async_db.connect() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(sql, ids)
+                return cur.rowcount
+
+    # ------------------------------------------------------------------ #
     #  Helpers                                                             #
     # ------------------------------------------------------------------ #
 
