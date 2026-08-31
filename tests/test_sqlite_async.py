@@ -299,3 +299,25 @@ async def test_async_bulk_create_update_delete_sqlite():
     assert n == 1
     n = await AsyncSLProduct.bulk_delete(ids)
     assert n == 2
+
+
+# ------------------------------------------------------------------ #
+#  Async mixins                                                        #
+# ------------------------------------------------------------------ #
+
+from mydborm.mixins import AsyncSoftDeleteMixin  # noqa: E402
+
+
+class AsyncSLSDPost(AsyncBaseModel, AsyncSoftDeleteMixin):
+    __tablename__ = "async_sl_sd_posts"
+    id    = IntField(primary_key=True)
+    title = StrField(max_length=100, nullable=False)
+
+
+async def test_async_soft_delete_sqlite():
+    await AsyncSLSDPost.create_table()
+    pid = await AsyncSLSDPost.create(title="Hello")
+    await AsyncSLSDPost.soft_delete(id=pid)
+    assert await AsyncSLSDPost.all() == []
+    assert len(await AsyncSLSDPost.all_with_deleted()) == 1
+    await AsyncSLSDPost.drop_table()
