@@ -202,6 +202,7 @@ class QueryBuilderBase:
         self._columns   = []
         self._or_wheres = []
         self._distinct  = False
+        self._for_update = False
 
     @property
     def _dialect(self) -> str:
@@ -560,6 +561,30 @@ class QueryBuilderBase:
         self._offset = n
         return self
 
+    def for_update(self) -> "QueryBuilderBase":
+        """Lock matching rows with SELECT ... FOR UPDATE.
+
+        Must be used within an active transaction (db.transaction() /
+        async_db.transaction()) for the lock to actually hold — outside
+        one, most drivers release it immediately after the statement.
+
+        Not supported on SQLite (no row-level locking) — raises
+        immediately rather than silently ignoring the clause.
+
+        For async: the lock is only held if the query executes on the
+        same connection as the enclosing async_db.transaction() block.
+        AsyncQueryBuilder's terminal methods don't yet accept an explicit
+        connection, so .for_update() generates correct SQL but won't
+        hold across the transaction boundary until that wiring exists —
+        noted here rather than left as a silent correctness gap.
+        """
+        if self._dialect == "sqlite":
+            raise ValueError(
+                "FOR UPDATE is not supported on SQLite (no row-level locking)."
+            )
+        self._for_update = True
+        return self
+
     # ── SQL builder ──────────────────────────────────────────────── #
 
     def _build_sql(self, select: str = "*") -> tuple:
@@ -619,6 +644,9 @@ class QueryBuilderBase:
             sql += " LIMIT " + str(self._limit)
         elif self._offset is not None:
             sql += " LIMIT 18446744073709551615 OFFSET " + str(self._offset)
+
+        if self._for_update:
+            sql += " FOR UPDATE"
 
         return sql, params
 

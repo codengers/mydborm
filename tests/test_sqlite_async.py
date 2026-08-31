@@ -321,3 +321,8 @@ async def test_async_soft_delete_sqlite():
     assert await AsyncSLSDPost.all() == []
     assert len(await AsyncSLSDPost.all_with_deleted()) == 1
     await AsyncSLSDPost.drop_table()
+
+
+def test_async_for_update_rejected_on_sqlite():
+    with pytest.raises(ValueError, match="FOR UPDATE"):
+        AsyncSLProduct.query().for_update()

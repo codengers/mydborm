@@ -869,3 +869,9 @@ async def test_async_timestamp_mixin_sets_created_updated():
     await AsyncTSComment.update({"content": "bye"}, id=cid)
     updated = await AsyncTSComment.get(id=cid)
     assert updated["content"] == "bye"
+
+
+def test_async_for_update_appends_clause():
+    qb = AsyncProduct.query().where("active", True).for_update()
+    sql, _ = qb._build_sql()
+    assert sql.rstrip().endswith("FOR UPDATE")

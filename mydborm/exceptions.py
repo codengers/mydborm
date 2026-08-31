@@ -126,6 +126,19 @@ class MultipleRecordsError(MydbormError):
         self.count = count
 
 
+class OptimisticLockError(MydbormError):
+    """
+    Raised by OptimisticLockMixin.update() when zero rows match the
+    id/version WHERE clause — the record was modified concurrently
+    (version changed) or no longer exists.
+    """
+    def __init__(self, message: str = "", model: str = "",
+                 expected_version=None):
+        super().__init__(message, model=model, expected_version=expected_version)
+        self.model = model
+        self.expected_version = expected_version
+
+
 # ------------------------------------------------------------------ #
 #  Validation exceptions                                               #
 # ------------------------------------------------------------------ #

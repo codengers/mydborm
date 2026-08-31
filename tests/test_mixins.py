@@ -11,7 +11,8 @@ import os
 import time
 import pytest
 from mydborm import db, BaseModel, IntField, StrField, BoolField, FloatField
-from mydborm.mixins import SoftDeleteMixin, AuditMixin, TimestampMixin
+from mydborm.mixins import SoftDeleteMixin, AuditMixin, TimestampMixin, OptimisticLockMixin
+from mydborm.exceptions import OptimisticLockError
 
 
 # ------------------------------------------------------------------ #
@@ -555,3 +556,64 @@ def test_timestamp_mixin_create_table_direct():
     assert "created_at" in MixinTestTS._fields
     with db.connect() as conn:
         conn.cursor().execute("DROP TABLE IF EXISTS mx_test_ts")
+
+
+# ------------------------------------------------------------------ #
+#  OptimisticLockMixin                                                 #
+# ------------------------------------------------------------------ #
+
+class Account(BaseModel, OptimisticLockMixin):
+    __tablename__ = "mx_accounts"
+    id      = IntField(primary_key=True)
+    balance = FloatField(nullable=False)
+
+
+@pytest.fixture(autouse=True)
+def _lock_table():
+    with db.connect() as conn:
+        conn.cursor().execute("DROP TABLE IF EXISTS mx_accounts")
+    Account.create_table()
+    yield
+    with db.connect() as conn:
+        conn.cursor().execute("DROP TABLE IF EXISTS mx_accounts")
+
+
+def test_optimistic_lock_create_defaults_version_zero():
+    aid = Account.create(balance=100.0)
+    row = Account.get(id=aid)
+    assert row["version"] == 0
+
+
+def test_optimistic_lock_update_increments_version():
+    aid = Account.create(balance=100.0)
+    row = Account.get(id=aid)
+    Account.update({"balance": 150.0}, id=aid, version=row["version"])
+    updated = Account.get(id=aid)
+    assert updated["version"] == 1
+    assert updated["balance"] == 150.0
+
+
+def test_optimistic_lock_stale_version_raises():
+    aid = Account.create(balance=100.0)
+    row = Account.get(id=aid)
+    Account.update({"balance": 150.0}, id=aid, version=row["version"])
+    with pytest.raises(OptimisticLockError):
+        Account.update({"balance": 200.0}, id=aid, version=row["version"])
+    # the first update's change must survive, second must not apply
+    assert Account.get(id=aid)["balance"] == 150.0
+
+
+def test_optimistic_lock_missing_version_raises_value_error():
+    aid = Account.create(balance=100.0)
+    with pytest.raises(ValueError, match="version"):
+        Account.update({"balance": 200.0}, id=aid)
+
+
+def test_optimistic_lock_error_context():
+    aid = Account.create(balance=100.0)
+    try:
+        Account.update({"balance": 1.0}, id=aid, version=99)
+        assert False, "expected OptimisticLockError"
+    except OptimisticLockError as e:
+        assert e.model == "Account"
+        assert e.expected_version == 99
