@@ -797,6 +797,65 @@ def migrate_db(
         raise typer.Exit(code=1)
 
 # ------------------------------------------------------------------ #
+#  seed                                                                #
+# ------------------------------------------------------------------ #
+
+@cli.command()
+def seed(
+    model_path:  str  = typer.Option(..., "--model",    "-m", help="Python import path to model e.g. myapp.models.User"),
+    file:        str  = typer.Option(..., "--file",     "-f", help="Path to a JSON fixture file (a list of row objects)"),
+    dialect:     str  = typer.Option("mysql",     "--dialect",  "-d"),
+    host:        str  = typer.Option("127.0.0.1", "--host",     "-h"),
+    port:        int  = typer.Option(3306,        "--port",     "-p"),
+    user:        str  = typer.Option("root",      "--user",     "-u"),
+    password:    str  = typer.Option("",          "--password", "-w", hide_input=True),
+    database:    str  = typer.Option("testdb",    "--database", "-n"),
+    force:       bool = typer.Option(False,       "--force",    help="Seed even if the table already has rows"),
+):
+    """
+    Load a JSON fixture file and bulk-insert it into a model's table.
+
+    Skips seeding if the table already has rows, unless --force is passed.
+
+    Examples:
+        mydborm seed --model myapp.models.User --file fixtures/users.json
+        mydborm seed --model myapp.models.User --file fixtures/users.json --force
+    """
+    from mydborm.db import db
+    from mydborm.seed import seed_from_file
+
+    db.configure(
+        dialect=dialect, host=host, port=port,
+        user=user, password=password, database=database
+    )
+
+    try:
+        parts     = model_path.rsplit(".", 1)
+        module    = __import__(parts[0], fromlist=[parts[1]])
+        model_cls = getattr(module, parts[1])
+    except Exception as e:
+        console.print(f"\n[red]✘ Could not import model:[/red] {e}\n")
+        raise typer.Exit(code=1)
+
+    try:
+        inserted = seed_from_file(model_cls, file, if_empty=not force)
+    except Exception as e:
+        console.print(f"\n[bold red]✘ Error:[/bold red] {e}\n")
+        raise typer.Exit(code=1)
+
+    if inserted == 0:
+        console.print(
+            f"\n[yellow]⚠[/yellow]  Skipped — '{model_cls._table}' already "
+            "has rows (use --force to seed anyway).\n"
+        )
+    else:
+        console.print(
+            f"\n[green]✔[/green] Seeded {inserted} row(s) into "
+            f"'{model_cls._table}' from {file!r}.\n"
+        )
+
+
+# ------------------------------------------------------------------ #
 #  Entry point                                                         #
 # ------------------------------------------------------------------ #
 
