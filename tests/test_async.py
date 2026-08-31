@@ -678,3 +678,76 @@ async def test_async_bulk_upsert_inserts_and_updates():
     assert n2 >= 1
     row = (await AsyncProduct.query().where("name", "Dup").all())[0]
     assert row["price"] == 9.0
+
+
+# ------------------------------------------------------------------ #
+#  Async relationships                                                  #
+# ------------------------------------------------------------------ #
+
+class AsyncAuthor(AsyncBaseModel):
+    __tablename__ = "async_rel_authors"
+    id   = IntField(primary_key=True)
+    name = StrField(max_length=100, nullable=False)
+
+
+class AsyncBook(AsyncBaseModel):
+    __tablename__ = "async_rel_books"
+    id        = IntField(primary_key=True)
+    title     = StrField(max_length=100, nullable=False)
+    author_id = IntField(nullable=True)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _rel_tables(setup_async_db):
+    await AsyncAuthor.create_table()
+    await AsyncBook.create_table()
+    yield
+    await AsyncBook.drop_table()
+    await AsyncAuthor.drop_table()
+
+
+async def test_async_has_many():
+    aid = await AsyncAuthor.create(name="Tolkien")
+    await AsyncBook.create(title="Fellowship", author_id=aid)
+    await AsyncBook.create(title="Two Towers", author_id=aid)
+    author = await AsyncAuthor.get(id=aid)
+    books = await AsyncAuthor.has_many(author, AsyncBook, foreign_key="author_id")
+    assert len(books) == 2
+
+
+async def test_async_belongs_to():
+    aid = await AsyncAuthor.create(name="Tolkien")
+    bid = await AsyncBook.create(title="Fellowship", author_id=aid)
+    book = await AsyncBook.get(id=bid)
+    author = await AsyncBook.belongs_to(book, AsyncAuthor, foreign_key="author_id")
+    assert author["name"] == "Tolkien"
+
+
+async def test_async_belongs_to_none():
+    bid = await AsyncBook.create(title="Orphan", author_id=None)
+    book = await AsyncBook.get(id=bid)
+    author = await AsyncBook.belongs_to(book, AsyncAuthor, foreign_key="author_id")
+    assert author is None
+
+
+async def test_async_many_to_many():
+    sid = await AsyncAuthor.create(name="Student1")
+    c1 = await AsyncBook.create(title="Course1", author_id=None)
+    c2 = await AsyncBook.create(title="Course2", author_id=None)
+    async with async_db.connect() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "CREATE TABLE IF NOT EXISTS async_rel_join "
+                "(author_id INT, book_id INT)"
+            )
+            await cur.execute(
+                "INSERT INTO async_rel_join (author_id, book_id) VALUES (%s,%s),(%s,%s)",
+                [sid, c1, sid, c2],
+            )
+    student = await AsyncAuthor.get(id=sid)
+    books = await AsyncAuthor.many_to_many(
+        student, AsyncBook, join_table="async_rel_join",
+        source_key="author_id", target_key="book_id",
+    )
+    assert len(books) == 2
+    await async_db.execute("DROP TABLE async_rel_join")
