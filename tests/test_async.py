@@ -619,3 +619,62 @@ async def test_async_delete_hooks_fire():
     await AsyncHookProduct.delete(id=pid)
     events = [c[0] for c in hook_calls]
     assert events == ["before_delete", "after_delete"]
+
+
+# ------------------------------------------------------------------ #
+#  Async bulk operations                                                #
+# ------------------------------------------------------------------ #
+
+async def test_async_bulk_create():
+    n = await AsyncProduct.bulk_create([
+        {"name": "A", "price": 1.0, "active": True},
+        {"name": "B", "price": 2.0, "active": True},
+    ])
+    assert n == 2
+    assert await AsyncProduct.count() == 2
+
+
+async def test_async_bulk_create_empty():
+    assert await AsyncProduct.bulk_create([]) == 0
+
+
+async def test_async_bulk_update():
+    p1 = await AsyncProduct.create(name="A", price=1.0, active=True)
+    p2 = await AsyncProduct.create(name="B", price=1.0, active=True)
+    n = await AsyncProduct.bulk_update([
+        {"id": p1, "price": 5.0},
+        {"id": p2, "price": 6.0},
+    ])
+    assert n == 2
+    assert (await AsyncProduct.get(id=p1))["price"] == 5.0
+
+
+async def test_async_bulk_update_missing_key_raises():
+    with pytest.raises(ValueError, match="key field"):
+        await AsyncProduct.bulk_update([{"price": 1.0}])
+
+
+async def test_async_bulk_delete():
+    p1 = await AsyncProduct.create(name="A", price=1.0, active=True)
+    p2 = await AsyncProduct.create(name="B", price=1.0, active=True)
+    n = await AsyncProduct.bulk_delete([p1, p2])
+    assert n == 2
+    assert await AsyncProduct.count() == 0
+
+
+async def test_async_bulk_upsert_inserts_and_updates():
+    # conflict_key must be a natural unique field, not the auto-increment
+    # PK — the PK is always excluded from the INSERT column list, so it
+    # can never trigger a duplicate-key conflict (matches sync bulk_upsert).
+    n = await AsyncProduct.bulk_upsert(
+        [{"name": "Dup", "price": 1.0, "active": True}],
+        conflict_key="name",
+    )
+    assert n == 1
+    n2 = await AsyncProduct.bulk_upsert(
+        [{"name": "Dup", "price": 9.0, "active": True}],
+        conflict_key="name",
+    )
+    assert n2 >= 1
+    row = (await AsyncProduct.query().where("name", "Dup").all())[0]
+    assert row["price"] == 9.0
