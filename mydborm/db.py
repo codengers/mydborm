@@ -31,6 +31,7 @@ Supports MySQL and YugabyteDB (via PostgreSQL wire protocol).
 import hashlib
 import logging
 import os
+import re
 import threading
 import time
 from contextlib import contextmanager
@@ -41,6 +42,12 @@ from .exceptions import (
 )
 
 SUPPORTED_DIALECTS = ("mysql", "yugabyte", "postgres", "postgresql", "sqlite")
+
+# Local copy of model.py's identifier pattern — can't import it directly
+# (model.py imports `db` from this module, so the reverse import would be
+# circular). Used to validate procedure names before interpolating them
+# into CALL statements, which can't be parameterized like values can.
+_PROC_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
 
 
 def _parse_url(url: str) -> dict:
@@ -504,6 +511,50 @@ class ConnectionManager:
         """
         rows = self.fetchall(sql, params)
         return rows[0] if rows else None
+
+    def call_procedure(self, name: str, params: list = None) -> list:
+        """
+        Execute a stored procedure and return its result rows as a list
+        of dicts (empty list if it returns no result set). If the
+        procedure produces multiple result sets, all rows from all of
+        them are concatenated.
+
+        Not supported on SQLite (no stored procedure support).
+
+        Usage:
+            rows = db.call_procedure("get_active_users", [42])
+        """
+        if self.dialect == "sqlite":
+            raise UnsupportedDialectError(
+                "Stored procedures are not supported on SQLite.",
+                dialect=self.dialect,
+            )
+        if not _PROC_NAME_RE.match(name or ""):
+            raise ValueError(f"Invalid procedure name: {name!r}")
+        params = params or []
+        with self.connect() as conn:
+            cur = conn.cursor()
+            if self.dialect == "mysql":
+                # mysql-connector requires callproc() + draining
+                # stored_results() for CALL — plain execute("CALL ...")
+                # leaves trailing result-set state on the connection that
+                # silently corrupts whatever query runs next (verified:
+                # the next SELECT's cursor.description comes back None).
+                cur.callproc(name, params)
+                rows = []
+                for result in cur.stored_results():
+                    columns = [d[0] for d in result.description]
+                    rows.extend(dict(zip(columns, row)) for row in result.fetchall())
+                return rows
+            else:
+                # Postgres-family: plain CALL via execute() is clean —
+                # verified no leftover state affecting subsequent queries.
+                placeholders = ", ".join(["%s"] * len(params))
+                cur.execute(f"CALL {name}({placeholders})", params)
+                if cur.description:
+                    columns = [d[0] for d in cur.description]
+                    return [dict(zip(columns, row)) for row in cur.fetchall()]
+                return []
 
     def table_exists(self, table: str) -> bool:
         """

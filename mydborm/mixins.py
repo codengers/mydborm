@@ -497,6 +497,134 @@ class OptimisticLockMixin:
         return rows_affected
 
 
+# ================================================================== #
+#  ViewModel                                                           #
+# ================================================================== #
+
+class ViewModel:
+    """
+    Marks a BaseModel subclass as mapping a read-only database VIEW
+    instead of a table. Reads (query/get/all/filter/count/exists) work
+    exactly as normal — a view is queried with SELECT like any table.
+    Write methods (create/update/delete/bulk_*) raise ViewReadOnlyError.
+
+    Usage:
+        class ActiveUser(BaseModel, ViewModel):
+            __tablename__  = "active_users"
+            __view_query__ = "SELECT * FROM users WHERE active = 1"
+            id       = IntField(primary_key=True)
+            username = StrField(max_length=100)
+
+        ActiveUser.create_table()   # CREATE VIEW active_users AS SELECT ...
+        ActiveUser.all()            # SELECT * FROM active_users
+        ActiveUser.create(...)      # raises ViewReadOnlyError
+
+    If the view already exists in the database, __view_query__ can be
+    omitted — just point __tablename__ at it and skip create_table().
+    """
+
+    _WRITE_METHODS = (
+        "create", "update", "delete",
+        "bulk_create", "bulk_update", "bulk_upsert", "bulk_delete",
+    )
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.create_table = classmethod(ViewModel.create_table.__func__)
+        cls.drop_table    = classmethod(ViewModel.drop_table.__func__)
+        for name in ViewModel._WRITE_METHODS:
+            setattr(cls, name, classmethod(ViewModel._blocked.__func__))
+
+    @classmethod
+    def create_table(cls, if_not_exists: bool = True):
+        view_query = getattr(cls, "__view_query__", None)
+        if not view_query:
+            raise ValueError(
+                f"{cls.__name__} defines no __view_query__ — can't CREATE VIEW "
+                "without a SELECT statement. Set __view_query__, or if the view "
+                "already exists in the database just skip create_table()."
+            )
+        from .db import db
+        with db.connect() as conn:
+            cur = conn.cursor()
+            # MySQL's CREATE VIEW has no IF NOT EXISTS clause (unlike CREATE
+            # TABLE) and PostgreSQL/YugabyteDB don't support it either — drop
+            # first instead, which is safe since a view carries no data and
+            # works identically across all four dialects.
+            if if_not_exists:
+                cur.execute(f"DROP VIEW IF EXISTS {cls._table}")
+            cur.execute(f"CREATE VIEW {cls._table} AS {view_query}")
+        print(f"[mydborm] View '{cls._table}' ready.")
+
+    @classmethod
+    def drop_table(cls, if_exists: bool = True):
+        from .db import db
+        exists = "IF EXISTS " if if_exists else ""
+        with db.connect() as conn:
+            conn.cursor().execute(f"DROP VIEW {exists}{cls._table}")
+        print(f"[mydborm] View '{cls._table}' dropped.")
+
+    @classmethod
+    def _blocked(cls, *args, **kwargs):
+        from .exceptions import ViewReadOnlyError
+        raise ViewReadOnlyError(
+            f"{cls.__name__} maps a read-only view — write operations "
+            "are not supported.",
+            model=cls.__name__,
+        )
+
+
+# ================================================================== #
+#  AsyncViewModel                                                      #
+# ================================================================== #
+
+class AsyncViewModel:
+    """Async equivalent of ViewModel, for AsyncBaseModel subclasses."""
+
+    _WRITE_METHODS = (
+        "create", "update", "delete",
+        "bulk_create", "bulk_update", "bulk_upsert", "bulk_delete",
+    )
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.create_table = classmethod(AsyncViewModel.create_table.__func__)
+        cls.drop_table    = classmethod(AsyncViewModel.drop_table.__func__)
+        for name in AsyncViewModel._WRITE_METHODS:
+            setattr(cls, name, classmethod(AsyncViewModel._blocked.__func__))
+
+    @classmethod
+    async def create_table(cls, if_not_exists: bool = True):
+        view_query = getattr(cls, "__view_query__", None)
+        if not view_query:
+            raise ValueError(
+                f"{cls.__name__} defines no __view_query__ — can't CREATE VIEW "
+                "without a SELECT statement. Set __view_query__, or if the view "
+                "already exists in the database just skip create_table()."
+            )
+        from .async_db import async_db
+        if if_not_exists:
+            await async_db.execute(f"DROP VIEW IF EXISTS {cls._table}")
+        await async_db.execute(f"CREATE VIEW {cls._table} AS {view_query}")
+        print(f"[mydborm] View '{cls._table}' ready.")
+
+    @classmethod
+    async def drop_table(cls, if_exists: bool = True):
+        from .async_db import async_db
+        exists = "IF EXISTS " if if_exists else ""
+        await async_db.execute(f"DROP VIEW {exists}{cls._table}")
+        print(f"[mydborm] View '{cls._table}' dropped.")
+
+    @classmethod
+    async def _blocked(cls, *args, **kwargs):
+        from .exceptions import ViewReadOnlyError
+        raise ViewReadOnlyError(
+            f"{cls.__name__} maps a read-only view — write operations "
+            "are not supported.",
+            model=cls.__name__,
+        )
+
+
 def _get_dialect_cls_async():
     from .async_db import async_db
     from .dialects import get_dialect

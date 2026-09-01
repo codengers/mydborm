@@ -66,6 +66,7 @@ from .exceptions import (
     RecordNotFoundError,
     MultipleRecordsError,
     OptimisticLockError,
+    ViewReadOnlyError,
     ValidationError,
     FieldRequiredError,
     FieldTypeError,
@@ -98,7 +99,10 @@ from .migrations import (
     apply_migration_file,
     list_migration_files,
 )
-from .mixins import SoftDeleteMixin, AuditMixin, TimestampMixin, OptimisticLockMixin
+from .mixins import (
+    SoftDeleteMixin, AuditMixin, TimestampMixin, OptimisticLockMixin,
+    ViewModel, AsyncViewModel,
+)
 from .migrate import MigrationEngine, MigrationResult, TypeMapper, ObjectMigrator
 from .async_db import async_db, AsyncBaseModel, AsyncQueryBuilder
 from .seed import seed, seed_from_file, seed_async, seed_from_file_async
@@ -130,6 +134,7 @@ __all__ = [
     "RecordNotFoundError",
     "MultipleRecordsError",
     "OptimisticLockError",
+    "ViewReadOnlyError",
     "ValidationError",
     "FieldRequiredError",
     "FieldTypeError",
@@ -185,6 +190,8 @@ __all__ = [
     "AuditMixin",
     "TimestampMixin",
     "OptimisticLockMixin",
+    "ViewModel",
+    "AsyncViewModel",
     "MigrationEngine",
     "MigrationResult",
     "TypeMapper",
