@@ -139,6 +139,17 @@ class OptimisticLockError(MydbormError):
         self.expected_version = expected_version
 
 
+class ViewReadOnlyError(MydbormError):
+    """
+    Raised when a write method (create/update/delete/bulk_*) is called
+    on a ViewModel/AsyncViewModel subclass — database views are mapped
+    read-only.
+    """
+    def __init__(self, message: str = "", model: str = ""):
+        super().__init__(message, model=model)
+        self.model = model
+
+
 # ------------------------------------------------------------------ #
 #  Validation exceptions                                               #
 # ------------------------------------------------------------------ #

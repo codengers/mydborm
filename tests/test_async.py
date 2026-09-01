@@ -875,3 +875,62 @@ def test_async_for_update_appends_clause():
     qb = AsyncProduct.query().where("active", True).for_update()
     sql, _ = qb._build_sql()
     assert sql.rstrip().endswith("FOR UPDATE")
+
+
+# ------------------------------------------------------------------ #
+#  call_procedure() / ViewModel — async                                 #
+# ------------------------------------------------------------------ #
+
+from mydborm.mixins import AsyncViewModel  # noqa: E402
+from mydborm.exceptions import ViewReadOnlyError  # noqa: E402
+
+
+async def test_async_call_procedure_returns_rows_and_does_not_corrupt_next_query():
+    async with async_db.connect() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("DROP PROCEDURE IF EXISTS async_sp_get_active")
+            await cur.execute(
+                "CREATE PROCEDURE async_sp_get_active() "
+                "BEGIN SELECT * FROM async_products WHERE active = 1; END"
+            )
+    await AsyncProduct.create(name="Active1", price=1.0, active=True)
+    await AsyncProduct.create(name="Inactive1", price=1.0, active=False)
+
+    rows = await async_db.call_procedure("async_sp_get_active")
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Active1"
+
+    # regression: a normal query right after CALL must still work
+    assert await AsyncProduct.count() == 2
+
+    async with async_db.connect() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("DROP PROCEDURE IF EXISTS async_sp_get_active")
+
+
+async def test_async_call_procedure_invalid_name_rejected():
+    with pytest.raises(ValueError, match="Invalid field name"):
+        await async_db.call_procedure("x; DROP TABLE async_products; --")
+
+
+class AsyncActiveProduct(AsyncBaseModel, AsyncViewModel):
+    __tablename__  = "async_active_products"
+    __view_query__ = "SELECT * FROM async_products WHERE active = 1"
+    id     = IntField(primary_key=True)
+    name   = StrField(max_length=100, nullable=False)
+    price  = FloatField(nullable=False)
+    active = BoolField(default=True)
+
+
+async def test_async_view_model_reads_and_blocks_writes():
+    await AsyncProduct.create(name="Active2", price=1.0, active=True)
+    await AsyncActiveProduct.create_table()
+    try:
+        rows = await AsyncActiveProduct.all()
+        assert any(r["name"] == "Active2" for r in rows)
+        with pytest.raises(ViewReadOnlyError):
+            await AsyncActiveProduct.create(name="x", price=1.0, active=True)
+        with pytest.raises(ViewReadOnlyError):
+            await AsyncActiveProduct.delete(id=1)
+    finally:
+        await AsyncActiveProduct.drop_table()

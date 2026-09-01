@@ -326,3 +326,9 @@ async def test_async_soft_delete_sqlite():
 def test_async_for_update_rejected_on_sqlite():
     with pytest.raises(ValueError, match="FOR UPDATE"):
         AsyncSLProduct.query().for_update()
+
+
+async def test_async_call_procedure_rejected_on_sqlite():
+    from mydborm.exceptions import UnsupportedDialectError
+    with pytest.raises(UnsupportedDialectError):
+        await async_db.call_procedure("anything")

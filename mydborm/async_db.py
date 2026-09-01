@@ -491,6 +491,50 @@ class AsyncConnectionManager:
         rows = await self.fetchall(sql, params)
         return rows[0] if rows else None
 
+    async def call_procedure(self, name: str, params: list = None) -> list:
+        """
+        Execute a stored procedure and return its result rows as a list
+        of dicts (empty list if it returns no result set). If the
+        procedure produces multiple result sets, all rows from all of
+        them are concatenated.
+
+        Not supported on SQLite (no stored procedure support).
+        """
+        if self.dialect == "sqlite":
+            raise UnsupportedDialectError(
+                "Stored procedures are not supported on SQLite.",
+                dialect=self.dialect,
+            )
+        _validate_identifier(name)
+        params = params or []
+        async with self.connect() as conn:
+            async with conn.cursor() as cur:
+                if self.dialect == "mysql":
+                    # aiomysql requires callproc() + draining nextset() for
+                    # CALL — plain execute("CALL ...") leaves trailing
+                    # result-set state that corrupts whatever query runs
+                    # next on the connection (same underlying MySQL
+                    # protocol behavior verified on the sync side).
+                    await cur.callproc(name, params)
+                    rows = []
+                    if cur.description:
+                        columns = [d[0] for d in cur.description]
+                        rows.extend(dict(zip(columns, row)) for row in await cur.fetchall())
+                    while await cur.nextset():
+                        if cur.description:
+                            columns = [d[0] for d in cur.description]
+                            rows.extend(dict(zip(columns, row)) for row in await cur.fetchall())
+                    return rows
+                else:
+                    # Postgres-family: plain CALL via execute() is clean.
+                    placeholders = ", ".join(["%s"] * len(params))
+                    await cur.execute(f"CALL {name}({placeholders})", params)
+                    if cur.description:
+                        columns = [d[0] for d in cur.description]
+                        rows = await cur.fetchall()
+                        return [dict(zip(columns, row)) for row in rows]
+                    return []
+
     # ------------------------------------------------------------------ #
     #  Pool management                                                     #
     # ------------------------------------------------------------------ #
