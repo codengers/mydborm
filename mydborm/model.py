@@ -21,6 +21,7 @@ import re
 from typing import Optional
 from .fields import Field, JSONField, ForeignKeyField
 from .db import db
+from .cache import query_cache
 
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
@@ -203,6 +204,7 @@ class QueryBuilderBase:
         self._or_wheres = []
         self._distinct  = False
         self._for_update = False
+        self._cache_ttl = None
 
     @property
     def _dialect(self) -> str:
@@ -585,6 +587,22 @@ class QueryBuilderBase:
         self._for_update = True
         return self
 
+    def cache(self, ttl: int = 60) -> "QueryBuilderBase":
+        """Cache this query's all()/first() result in memory for ttl
+        seconds. Invalidated automatically on any write to the table
+        (table-level invalidation — conservative, not per-row) or
+        manually via Model.clear_cache().
+
+        Ignored if combined with for_update() — a locking read must
+        always hit the database live, so for_update() takes precedence
+        even if .cache() was also called.
+        """
+        self._cache_ttl = ttl
+        return self
+
+    def _cache_key(self, sql: str, params: list):
+        return (self._dialect, self._model._table, sql, tuple(params))
+
     # ── SQL builder ──────────────────────────────────────────────── #
 
     def _build_sql(self, select: str = "*") -> tuple:
@@ -665,69 +683,77 @@ class QueryBuilder(QueryBuilderBase):
     def all(self) -> list:
         """Execute and return all matching rows as list of dicts."""
         sql, params = self._build_sql()
-        rows        = self._model._fetch(sql + ";", params)
+        use_cache = self._cache_ttl is not None and not self._for_update
+        qc_key = self._cache_key(sql, params) if use_cache else None
+        if use_cache:
+            cached, hit = query_cache.get(qc_key)
+            if hit:
+                return cached
 
-        if not rows or not self._includes:
-            return rows
+        rows = self._model._fetch(sql + ";", params)
 
-        # Deduplicate rows by primary key before eager loading
-        pk_field = next(
-            (f for f, field in self._model._fields.items()
-             if field.primary_key), "id"
-        )
-        seen = {}
-        deduped = []
-        for row in rows:
-            pk_val = row._data.get(pk_field)
-            if pk_val not in seen:
-                seen[pk_val] = row
-                deduped.append(row)
-        rows = deduped
-
-        # Eager load each included relation
-        for relation_name in self._includes:
-            descriptor = None
-            for cls in type.mro(self._model):
-                if relation_name in cls.__dict__:
-                    descriptor = cls.__dict__[relation_name]
-                    break
-
-            if not isinstance(descriptor, LazyRelation):
-                continue
-
-            related_model = descriptor._resolve_model(self._model)
-            fk            = descriptor.foreign_key or \
-                            f"{self._model.__name__.lower()}_id"
-
-            # Collect all PKs from loaded rows
-            pk_values = [r._data.get(pk_field) for r in rows
-                         if r._data.get(pk_field)]
-
-            if not pk_values:
-                continue
-
-            # Single batch query for all related records
-            related_rows = related_model.query().where(
-                fk + "__in", pk_values
-            ).all()
-
-            # Group by FK value
-            grouped = {}
-            for rrow in related_rows:
-                fk_val = rrow._data.get(fk)
-                if fk_val not in grouped:
-                    grouped[fk_val] = []
-                grouped[fk_val].append(rrow)
-
-            # Attach to each parent row
-            cache_key = f"_lazy_{relation_name}"
+        if rows and self._includes:
+            # Deduplicate rows by primary key before eager loading
+            pk_field = next(
+                (f for f, field in self._model._fields.items()
+                 if field.primary_key), "id"
+            )
+            seen = {}
+            deduped = []
             for row in rows:
                 pk_val = row._data.get(pk_field)
-                dict.__setitem__(
-                    row._data,
-                    cache_key,
-                    grouped.get(pk_val, [])
-                )
+                if pk_val not in seen:
+                    seen[pk_val] = row
+                    deduped.append(row)
+            rows = deduped
+
+            # Eager load each included relation
+            for relation_name in self._includes:
+                descriptor = None
+                for cls in type.mro(self._model):
+                    if relation_name in cls.__dict__:
+                        descriptor = cls.__dict__[relation_name]
+                        break
+
+                if not isinstance(descriptor, LazyRelation):
+                    continue
+
+                related_model = descriptor._resolve_model(self._model)
+                fk            = descriptor.foreign_key or \
+                                f"{self._model.__name__.lower()}_id"
+
+                # Collect all PKs from loaded rows
+                pk_values = [r._data.get(pk_field) for r in rows
+                             if r._data.get(pk_field)]
+
+                if not pk_values:
+                    continue
+
+                # Single batch query for all related records
+                related_rows = related_model.query().where(
+                    fk + "__in", pk_values
+                ).all()
+
+                # Group by FK value
+                grouped = {}
+                for rrow in related_rows:
+                    fk_val = rrow._data.get(fk)
+                    if fk_val not in grouped:
+                        grouped[fk_val] = []
+                    grouped[fk_val].append(rrow)
+
+                # Attach to each parent row
+                lazy_key = f"_lazy_{relation_name}"
+                for row in rows:
+                    pk_val = row._data.get(pk_field)
+                    dict.__setitem__(
+                        row._data,
+                        lazy_key,
+                        grouped.get(pk_val, [])
+                    )
+
+        if use_cache:
+            query_cache.set(qc_key, self._model._table, rows, self._cache_ttl)
 
         return rows
 
@@ -737,8 +763,21 @@ class QueryBuilder(QueryBuilderBase):
         self._limit    = 1
         sql, params    = self._build_sql()
         self._limit    = original_limit
+
+        use_cache = self._cache_ttl is not None and not self._for_update
+        qc_key = self._cache_key(sql, params) if use_cache else None
+        if use_cache:
+            cached, hit = query_cache.get(qc_key)
+            if hit:
+                return cached
+
         rows = self._model._fetch(sql + ";", params)
-        return rows[0] if rows else None
+        result = rows[0] if rows else None
+
+        if use_cache:
+            query_cache.set(qc_key, self._model._table, result, self._cache_ttl)
+
+        return result
 
     def count(self) -> int:
         """Return count of matching rows or groups."""
@@ -821,6 +860,7 @@ class QueryBuilder(QueryBuilderBase):
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql + ";", params)
+            query_cache.invalidate_table(table)
             return cur.rowcount
 
     def delete(self) -> int:
@@ -846,6 +886,7 @@ class QueryBuilder(QueryBuilderBase):
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql + ";", params)
+            query_cache.invalidate_table(table)
             return cur.rowcount
 
     def paginate(self, page: int = 1, per_page: int = 20) -> dict:
@@ -1444,6 +1485,7 @@ class BaseModel(metaclass=ModelMeta):
                 getattr(cls, "after_create")):
             cls.after_create(new_id, validated)
 
+        query_cache.invalidate_table(cls._table)
         return new_id
 
     # ------------------------------------------------------------------ #
@@ -1540,6 +1582,7 @@ class BaseModel(metaclass=ModelMeta):
                 getattr(cls, "after_update")):
             cls.after_update(rows_affected, data, where_kwargs)
 
+        query_cache.invalidate_table(cls._table)
         return rows_affected
 
     # ------------------------------------------------------------------ #
@@ -1570,6 +1613,7 @@ class BaseModel(metaclass=ModelMeta):
                 getattr(cls, "after_delete")):
             cls.after_delete(rows_deleted, kwargs)
 
+        query_cache.invalidate_table(cls._table)
         return rows_deleted
 
     # ------------------------------------------------------------------ #
@@ -1600,6 +1644,14 @@ class BaseModel(metaclass=ModelMeta):
     def exists(cls, **kwargs) -> bool:
         """Return True if any row matches kwargs."""
         return cls.count(**kwargs) > 0
+
+    @classmethod
+    def clear_cache(cls):
+        """Manually clear every cached .cache()'d query result for this
+        model's table. Writes already do this automatically — use this
+        for cache invalidation from outside mydborm (e.g. after a raw
+        SQL write via db.execute())."""
+        query_cache.invalidate_table(cls._table)
 
     @classmethod
     def from_dict(cls, data: dict) -> "ModelInstance":
@@ -1856,6 +1908,7 @@ class BaseModel(metaclass=ModelMeta):
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql, flat_values)
+            query_cache.invalidate_table(cls._table)
             return cur.rowcount
 
     @classmethod
@@ -1894,6 +1947,7 @@ class BaseModel(metaclass=ModelMeta):
                 )
                 cur.execute(sql, list(data.values()) + [key_val])
                 total += cur.rowcount
+        query_cache.invalidate_table(cls._table)
         return total
 
     @classmethod
@@ -2032,6 +2086,7 @@ class BaseModel(metaclass=ModelMeta):
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql, flat_values)
+            query_cache.invalidate_table(cls._table)
             return cur.rowcount
 
     @classmethod
@@ -2055,6 +2110,7 @@ class BaseModel(metaclass=ModelMeta):
         with db.connect() as conn:
             cur = conn.cursor()
             cur.execute(sql, ids)
+            query_cache.invalidate_table(cls._table)
             return cur.rowcount
 
     def __repr__(self):

@@ -15,6 +15,7 @@ import asyncio
 import pytest
 import pytest_asyncio
 from mydborm.async_db import async_db, AsyncBaseModel
+from mydborm.cache import query_cache
 from mydborm.fields import IntField, StrField, BoolField, FloatField
 
 
@@ -42,6 +43,7 @@ async def setup_async_db():
     )
     await AsyncProduct.create_table()
     await async_db.execute("DELETE FROM async_products")
+    query_cache.clear()
     yield
     await AsyncProduct.drop_table()
     await async_db.close()
@@ -543,6 +545,58 @@ async def test_async_transaction_with_retry_exhausted_raises():
     with pytest.raises(RetryExhaustedError) as exc_info:
         await async_db.transaction_with_retry(always_fails, retries=2, retry_delay=0.01)
     assert exc_info.value.attempts == 3
+
+
+# ------------------------------------------------------------------ #
+#  Async caching                                                       #
+# ------------------------------------------------------------------ #
+
+async def test_async_cache_serves_stale_result_until_orm_write():
+    await AsyncProduct.create(name="Alice", price=1.0)
+
+    rows1 = await AsyncProduct.query().cache(ttl=60).all()
+    assert len(rows1) == 1
+
+    await async_db.execute(
+        "INSERT INTO async_products (name, price, active) VALUES (%s,%s,%s)",
+        ["Bob", 2.0, True],
+    )
+
+    rows2 = await AsyncProduct.query().cache(ttl=60).all()
+    assert len(rows2) == 1
+
+
+async def test_async_orm_create_invalidates_cache():
+    await AsyncProduct.create(name="Alice", price=1.0)
+    await AsyncProduct.query().cache(ttl=60).all()
+
+    await AsyncProduct.create(name="Bob", price=2.0)
+
+    rows = await AsyncProduct.query().cache(ttl=60).all()
+    assert len(rows) == 2
+
+
+async def test_async_orm_update_invalidates_cache():
+    pid = await AsyncProduct.create(name="Alice", price=1.0)
+    await AsyncProduct.query().cache(ttl=60).all()
+
+    await AsyncProduct.update({"name": "Updated"}, id=pid)
+
+    result = await AsyncProduct.query().where("name", "Updated").cache(ttl=60).first()
+    assert result is not None
+
+
+async def test_async_clear_cache_forces_refresh():
+    pid = await AsyncProduct.create(name="Alice", price=1.0)
+    await AsyncProduct.query().cache(ttl=60).all()
+
+    await async_db.execute(
+        "UPDATE async_products SET name='Manual' WHERE id=%s", [pid]
+    )
+    AsyncProduct.clear_cache()
+
+    rows = await AsyncProduct.query().cache(ttl=60).all()
+    assert rows[0]["name"] == "Manual"
 
 
 # ------------------------------------------------------------------ #

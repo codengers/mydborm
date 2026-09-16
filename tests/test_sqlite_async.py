@@ -16,6 +16,7 @@ import pytest
 import pytest_asyncio
 
 from mydborm.async_db import AsyncBaseModel, async_db
+from mydborm.cache import query_cache
 from mydborm.fields import BoolField, FloatField, IntField, StrField
 
 # ------------------------------------------------------------------ #
@@ -42,6 +43,7 @@ async def setup_async_db():
 
     await async_db.configure(dialect="sqlite", database=path)
     await AsyncSLProduct.create_table()
+    query_cache.clear()
     yield
     await async_db.close()
     if os.path.exists(path):
@@ -332,3 +334,62 @@ async def test_async_call_procedure_rejected_on_sqlite():
     from mydborm.exceptions import UnsupportedDialectError
     with pytest.raises(UnsupportedDialectError):
         await async_db.call_procedure("anything")
+
+
+# ------------------------------------------------------------------ #
+#  Async caching                                                       #
+# ------------------------------------------------------------------ #
+
+async def test_async_cache_serves_stale_result_until_write():
+    pid = await AsyncSLProduct.create(name="Alice", price=1.0)
+
+    rows1 = await AsyncSLProduct.query().cache(ttl=60).all()
+    assert [r["name"] for r in rows1] == ["Alice"]
+
+    async with async_db.connect() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE async_sl_products SET name='Mutated' WHERE id=%s", [pid]
+            )
+
+    rows2 = await AsyncSLProduct.query().cache(ttl=60).all()
+    assert [r["name"] for r in rows2] == ["Alice"]
+
+
+async def test_async_orm_write_invalidates_cache():
+    pid = await AsyncSLProduct.create(name="Alice", price=1.0)
+    await AsyncSLProduct.query().cache(ttl=60).all()
+
+    await AsyncSLProduct.update({"name": "Bob"}, id=pid)
+
+    rows = await AsyncSLProduct.query().cache(ttl=60).all()
+    assert [r["name"] for r in rows] == ["Bob"]
+
+
+async def test_async_clear_cache_forces_refresh():
+    pid = await AsyncSLProduct.create(name="Alice", price=1.0)
+    await AsyncSLProduct.query().cache(ttl=60).all()
+
+    async with async_db.connect() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE async_sl_products SET name='Manual' WHERE id=%s", [pid]
+            )
+
+    AsyncSLProduct.clear_cache()
+
+    rows = await AsyncSLProduct.query().cache(ttl=60).all()
+    assert [r["name"] for r in rows] == ["Manual"]
+
+
+async def test_async_cache_first_hits():
+    await AsyncSLProduct.create(name="Alice", price=1.0)
+    first = await AsyncSLProduct.query().where("name", "Alice").cache(ttl=60).first()
+    assert first["name"] == "Alice"
+
+    async with async_db.connect() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("UPDATE async_sl_products SET name='Changed' WHERE name='Alice'")
+
+    second = await AsyncSLProduct.query().where("name", "Alice").cache(ttl=60).first()
+    assert second["name"] == "Alice"

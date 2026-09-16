@@ -21,6 +21,7 @@ from typing import Optional
 from .fields import Field
 from .exceptions import NotConfiguredError, UnsupportedDialectError, RetryExhaustedError
 from .model import QueryBuilderBase, _validate_identifier
+from .cache import query_cache
 
 async def _call_hook(hook, *args):
     """Call a lifecycle hook that may be defined sync or async — a hook
@@ -592,7 +593,16 @@ class AsyncQueryBuilder(QueryBuilderBase):
                 "async models."
             )
         sql, params = self._build_sql()
-        return await self._model._fetch(sql + ";", params)
+        use_cache = self._cache_ttl is not None and not self._for_update
+        qc_key = self._cache_key(sql, params) if use_cache else None
+        if use_cache:
+            cached, hit = query_cache.get(qc_key)
+            if hit:
+                return cached
+        rows = await self._model._fetch(sql + ";", params)
+        if use_cache:
+            query_cache.set(qc_key, self._model._table, rows, self._cache_ttl)
+        return rows
 
     async def first(self) -> Optional[dict]:
         """Return first matching row or None."""
@@ -600,8 +610,18 @@ class AsyncQueryBuilder(QueryBuilderBase):
         self._limit    = 1
         sql, params    = self._build_sql()
         self._limit    = original_limit
+
+        use_cache = self._cache_ttl is not None and not self._for_update
+        qc_key = self._cache_key(sql, params) if use_cache else None
+        if use_cache:
+            cached, hit = query_cache.get(qc_key)
+            if hit:
+                return cached
         rows = await self._model._fetch(sql + ";", params)
-        return rows[0] if rows else None
+        result = rows[0] if rows else None
+        if use_cache:
+            query_cache.set(qc_key, self._model._table, result, self._cache_ttl)
+        return result
 
     async def count(self) -> int:
         """Return count of matching rows or groups."""
@@ -684,6 +704,7 @@ class AsyncQueryBuilder(QueryBuilderBase):
         async with async_db.connect() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(sql + ";", params)
+                query_cache.invalidate_table(table)
                 return cur.rowcount
 
     async def delete(self) -> int:
@@ -709,6 +730,7 @@ class AsyncQueryBuilder(QueryBuilderBase):
         async with async_db.connect() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(sql + ";", params)
+                query_cache.invalidate_table(table)
                 return cur.rowcount
 
     async def paginate(self, page: int = 1, per_page: int = 20) -> dict:
@@ -846,6 +868,7 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
         if hasattr(cls, "after_create") and callable(getattr(cls, "after_create")):
             await _call_hook(cls.after_create, new_id, validated)
 
+        query_cache.invalidate_table(cls._table)
         return new_id
 
     # ------------------------------------------------------------------ #
@@ -899,6 +922,12 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
             )
         return list(rows[0].values())[0]
 
+    @classmethod
+    def clear_cache(cls):
+        """Manually clear every cached .cache()'d query result for this
+        model's table. Writes already do this automatically."""
+        query_cache.invalidate_table(cls._table)
+
     # ------------------------------------------------------------------ #
     #  Update                                                              #
     # ------------------------------------------------------------------ #
@@ -923,6 +952,7 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
         if hasattr(cls, "after_update") and callable(getattr(cls, "after_update")):
             await _call_hook(cls.after_update, rows_affected, data, where_kwargs)
 
+        query_cache.invalidate_table(cls._table)
         return rows_affected
 
     # ------------------------------------------------------------------ #
@@ -945,6 +975,7 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
         if hasattr(cls, "after_delete") and callable(getattr(cls, "after_delete")):
             await _call_hook(cls.after_delete, rows_deleted, kwargs)
 
+        query_cache.invalidate_table(cls._table)
         return rows_deleted
 
     @classmethod
@@ -999,6 +1030,7 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
         async with async_db.connect() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(sql, flat_values)
+                query_cache.invalidate_table(cls._table)
                 return cur.rowcount
 
     @classmethod
@@ -1028,6 +1060,7 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
                     )
                     await cur.execute(sql, list(data.values()) + [key_val])
                     total += cur.rowcount
+        query_cache.invalidate_table(cls._table)
         return total
 
     @classmethod
@@ -1145,6 +1178,7 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
         async with async_db.connect() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(sql, flat_values)
+                query_cache.invalidate_table(cls._table)
                 return cur.rowcount
 
     @classmethod
@@ -1161,6 +1195,7 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
         async with async_db.connect() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(sql, ids)
+                query_cache.invalidate_table(cls._table)
                 return cur.rowcount
 
     # ------------------------------------------------------------------ #
