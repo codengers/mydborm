@@ -1099,10 +1099,41 @@ class ModelMeta(type):
                 fields[attr_name] = attr_value
 
         namespace["_fields"] = fields
-        namespace["_table"]  = namespace.get(
-            "__tablename__",
-            name.lower() + "s"
+
+        # Single Table Inheritance: a class that subclasses another
+        # already-defined model (not BaseModel itself) shares its
+        # parent's table by default. Every class with a discriminator
+        # column gets its own discriminator value (its class name by
+        # default) so create() can auto-fill it — but only a class that
+        # *inherited* the discriminator (i.e. an actual subtype) has its
+        # reads scoped to that value; the class that originally declares
+        # __discriminator_col__ is the STI root and its reads still see
+        # every subtype's rows.
+        parent_model = next(
+            (b for b in bases if getattr(b, "_fields", None) and b is not BaseModel),
+            None,
         )
+        if parent_model is not None:
+            namespace["_table"] = namespace.get("__tablename__", parent_model._table)
+            parent_disc_col = getattr(parent_model, "_discriminator_col", None)
+            disc_col = namespace.get("__discriminator_col__", parent_disc_col)
+            namespace["_discriminator_col"] = disc_col
+            namespace["_discriminator_value"] = (
+                namespace.get("__discriminator_value__", name) if disc_col else None
+            )
+            namespace["_discriminator_scoped"] = bool(parent_disc_col)
+        else:
+            namespace["_table"] = namespace.get(
+                "__tablename__",
+                name.lower() + "s"
+            )
+            disc_col = namespace.get("__discriminator_col__", None)
+            namespace["_discriminator_col"] = disc_col
+            namespace["_discriminator_value"] = (
+                namespace.get("__discriminator_value__", name) if disc_col else None
+            )
+            namespace["_discriminator_scoped"] = False
+
         # Composite PK support — __pk__ = ("col1", "col2")
         namespace["_composite_pk"] = namespace.get("__pk__", None)
         return super().__new__(mcs, name, bases, namespace)
@@ -1277,6 +1308,29 @@ class BaseModel(metaclass=ModelMeta):
                 except Exception:
                     pass
 
+        # Single Table Inheritance: the shared table needs every
+        # subtype's columns. Reconcile against the live schema so that
+        # calling create_table() on each class in the hierarchy — in
+        # any order — accumulates the full column set idempotently.
+        if cls._discriminator_col:
+            from .migrations import get_live_schema
+            from .dialects import get_dialect
+            schema  = get_live_schema(cls._table) or {}
+            missing = [
+                (fname, field) for fname, field in cls._fields.items()
+                if fname not in schema
+            ]
+            if missing:
+                dialect_cls = get_dialect(db.dialect)
+                with db.connect() as conn:
+                    cur = conn.cursor()
+                    for fname, field in missing:
+                        add_sql = dialect_cls.add_column_sql(
+                            cls._table, fname, field.to_sql_def(db.dialect)
+                        )
+                        cur.execute(add_sql)
+                        print(f"[mydborm] Added '{fname}' to '{cls._table}'")
+
         print(f"[mydborm] Table '{cls._table}' ready.")
 
     @classmethod
@@ -1427,7 +1481,15 @@ class BaseModel(metaclass=ModelMeta):
         Insert a new row. Returns the new row's primary key.
 
         User.create(username="alice", email="alice@example.com")
+
+        For a Single Table Inheritance subclass, the discriminator
+        column is auto-filled with this class's discriminator value
+        unless explicitly passed.
         """
+        if cls._discriminator_col and cls._discriminator_value is not None:
+            kwargs = dict(kwargs)
+            kwargs.setdefault(cls._discriminator_col, cls._discriminator_value)
+
         # Validate all provided values
         validated   = {}
         comp_pk     = getattr(cls, "_composite_pk", None)
@@ -1520,8 +1582,23 @@ class BaseModel(metaclass=ModelMeta):
             return results
 
     @classmethod
+    def _sti_scoped_kwargs(cls, kwargs: dict) -> dict:
+        """For a Single Table Inheritance subclass, scope reads to just
+        this subtype's rows by injecting the discriminator filter. A
+        no-op for regular models and for the STI base class itself."""
+        if cls._discriminator_col and cls._discriminator_scoped:
+            kwargs = dict(kwargs)
+            kwargs.setdefault(cls._discriminator_col, cls._discriminator_value)
+        return kwargs
+
+    @classmethod
     def all(cls) -> list:
         """Return all rows as list of dicts."""
+        if cls._discriminator_col and cls._discriminator_scoped:
+            return cls._fetch(
+                f"SELECT * FROM {cls._table} WHERE {cls._discriminator_col} = %s;",
+                [cls._discriminator_value],
+            )
         return cls._fetch(f"SELECT * FROM {cls._table};")
 
     @classmethod
@@ -1531,7 +1608,7 @@ class BaseModel(metaclass=ModelMeta):
 
         User.get(id=1)
         """
-        where, values = cls._build_where(kwargs)
+        where, values = cls._build_where(cls._sti_scoped_kwargs(kwargs))
         sql = f"SELECT * FROM {cls._table} WHERE {where} LIMIT 1;"
         rows = cls._fetch(sql, values)
         return rows[0] if rows else None
@@ -1543,7 +1620,7 @@ class BaseModel(metaclass=ModelMeta):
 
         User.filter(active=True)
         """
-        where, values = cls._build_where(kwargs)
+        where, values = cls._build_where(cls._sti_scoped_kwargs(kwargs))
         sql = f"SELECT * FROM {cls._table} WHERE {where};"
         return cls._fetch(sql, values)
 
@@ -1631,6 +1708,7 @@ class BaseModel(metaclass=ModelMeta):
     @classmethod
     def count(cls, **kwargs) -> int:
         """Count rows, optionally filtered."""
+        kwargs = cls._sti_scoped_kwargs(kwargs)
         if kwargs:
             where, values = cls._build_where(kwargs)
             sql = f"SELECT COUNT(*) FROM {cls._table} WHERE {where};"
@@ -1763,8 +1841,14 @@ class BaseModel(metaclass=ModelMeta):
 
         Usage:
             User.query().where("active", True).order_by("name").all()
+
+        For a Single Table Inheritance subclass, pre-filtered to this
+        subtype's rows via the discriminator column.
         """
-        return QueryBuilder(cls)
+        qb = QueryBuilder(cls)
+        if cls._discriminator_col and cls._discriminator_scoped:
+            qb = qb.where(cls._discriminator_col, cls._discriminator_value)
+        return qb
 
     # ------------------------------------------------------------------ #
     #  Relationships                                                     #

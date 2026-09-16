@@ -126,7 +126,7 @@ Cross-referenced against the codebase as of the post-v1.12.0 `main` (4 unrelease
 - ❌ CHECK constraints
 
 ## Inheritance Mapping
-- ❌ Single table inheritance
+- ✅ Single table inheritance — subclassing a model shares its parent's table by default; `__discriminator_col__` + auto-derived `__discriminator_value__` (class name) scope reads (`all`/`get`/`filter`/`count`/`exists`/`query`) to the subtype while the base class still sees every subtype; `create()` auto-fills the discriminator; `create_table()` reconciles the shared table's columns across the whole hierarchy regardless of call order. Sync + async.
 - ❌ Joined table inheritance
 - ❌ Concrete table inheritance
 
@@ -251,5 +251,5 @@ Biggest unimplemented areas, roughly in order of likely value for a "lightweight
 6. ~~Data seeding utility~~ — done (`seed.py`, CLI `mydborm seed`)
 7. ~~Stored procedures + database views mapping~~ — done (`call_procedure()`, `ViewModel`/`AsyncViewModel`)
 8. ~~Query caching~~ — done (`.cache()`, table-level invalidation, `clear_cache()`)
-9. **Inheritance mapping** (single/joined/concrete table)
+9. ~~Inheritance mapping~~ — done (Single Table Inheritance; joined/concrete table inheritance out of scope)
 10. **Read/write splitting, sharding, multi-tenancy** — larger architectural additions
