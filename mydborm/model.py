@@ -1556,12 +1556,18 @@ class BaseModel(metaclass=ModelMeta):
 
     @classmethod
     def _fetch(cls, sql: str, params: list = None) -> list:
-        """Internal: run a SELECT and return list of ModelInstance."""
+        """Internal: run a SELECT and return list of ModelInstance.
+
+        Routes through db.connect_read() — the single funnel every read
+        path (QueryBuilder.all()/first()/count()/..., BaseModel.all()/
+        get()/filter()/count()) goes through, so configuring read
+        replicas via db.configure_replicas() transparently applies
+        everywhere without touching those call sites."""
         json_fields = [
             fname for fname, field in cls._fields.items()
             if isinstance(field, JSONField)
         ]
-        with db.connect() as conn:
+        with db.connect_read() as conn:
             cur = conn.cursor()
             cur.execute(sql, params or [])
             columns = [desc[0] for desc in cur.description]

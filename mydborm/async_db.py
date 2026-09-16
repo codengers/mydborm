@@ -34,6 +34,19 @@ async def _call_hook(hook, *args):
     return result
 
 
+async def _async_primary_fetchall(sql: str, params: list = None) -> list:
+    """Like async_db.fetchall(), but always against the primary
+    connection — never a read replica. Used for schema introspection,
+    where a replica could be lagging behind a just-issued DDL change
+    on the primary and report stale (or missing) columns."""
+    async with async_db.connect() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(sql, params or [])
+            columns = [desc[0] for desc in cur.description]
+            rows    = await cur.fetchall()
+            return [dict(zip(columns, row)) for row in rows]
+
+
 async def _async_live_columns(table: str) -> set:
     """Return the set of column names currently in `table` on the
     configured async connection, or an empty set if it doesn't exist
@@ -41,17 +54,17 @@ async def _async_live_columns(table: str) -> set:
     the async mirror of migrations.get_live_schema() (sync-only, tied
     to the sync ConnectionManager)."""
     if async_db.dialect == "sqlite":
-        rows = await async_db.fetchall(f"PRAGMA table_info(`{table}`);")
+        rows = await _async_primary_fetchall(f"PRAGMA table_info(`{table}`);")
         return {row["name"] for row in rows}
     elif async_db.dialect == "mysql":
-        rows = await async_db.fetchall(
+        rows = await _async_primary_fetchall(
             "SELECT column_name FROM information_schema.columns "
             "WHERE table_name = %s AND table_schema = DATABASE();",
             [table],
         )
         return {row["column_name"] for row in rows}
     else:
-        rows = await async_db.fetchall(
+        rows = await _async_primary_fetchall(
             "SELECT column_name FROM information_schema.columns "
             "WHERE table_name = %s AND table_schema = 'public';",
             [table],
@@ -252,6 +265,11 @@ class AsyncConnectionManager:
         self._pool    = None
         self._log_queries = False
         self.queries: list = []
+        # Read/write splitting — see configure_replicas(). Mirrors
+        # ConnectionManager's design (db.py): each replica is a full
+        # AsyncConnectionManager of its own, with its own pool.
+        self._replicas: list = []
+        self._replica_counter = 0
 
     # ------------------------------------------------------------------ #
     #  Configuration                                                       #
@@ -273,6 +291,42 @@ class AsyncConnectionManager:
         self._log_queries = kwargs.pop("echo", False)
         self._config = kwargs
         await self._create_pool()
+
+    async def configure_replicas(self, *replica_configs):
+        """
+        Configure one or more read replicas for read/write splitting.
+        Mirrors ConnectionManager.configure_replicas() (db.py) — see
+        there for the full rationale.
+
+        Each replica_config is a dict of the same keyword arguments
+        accepted by configure(). Once configured, every read path
+        (AsyncQueryBuilder.all()/first()/count()/..., AsyncBaseModel.
+        all()/get()/filter()/count(), and async_db.fetchall()/fetchone())
+        automatically round-robins across the configured replicas via
+        connect_read(). Writes always go through the primary pool.
+
+        await async_db.configure(dialect="mysql", host="primary.db", ...)
+        await async_db.configure_replicas(
+            {"dialect": "mysql", "host": "replica1.db", ...},
+            {"dialect": "mysql", "host": "replica2.db", ...},
+        )
+        """
+        replicas = []
+        for cfg in replica_configs:
+            replica = AsyncConnectionManager()
+            await replica.configure(**cfg)
+            replicas.append(replica)
+        self._replicas = replicas
+        self._replica_counter = 0
+
+    def _pick_replica(self) -> "AsyncConnectionManager":
+        """Round-robin over configured replicas. No lock needed — this
+        runs to completion within a single event-loop tick (no `await`
+        between read and write of the counter), so it's inherently
+        atomic under asyncio's cooperative scheduling."""
+        idx = self._replica_counter
+        self._replica_counter = (self._replica_counter + 1) % len(self._replicas)
+        return self._replicas[idx]
 
     def clear_queries(self):
         """Empty the .queries log (has no effect on whether echo is on)."""
@@ -372,6 +426,30 @@ class AsyncConnectionManager:
             except Exception:
                 await conn.rollback()
                 raise
+
+    @asynccontextmanager
+    async def connect_read(self):
+        """
+        Like connect(), but for reads: routes to a configured replica
+        (round-robin) when any are configured via configure_replicas().
+        Falls back to the primary pool otherwise.
+
+        Unlike the sync side, there's no "inside an active transaction"
+        fallback check here — connect()/fetchall() already always
+        acquire an independent connection from the pool regardless of
+        any surrounding async_db.transaction() block (see transaction()'s
+        docstring); a read that needs to participate in a transaction
+        already has to use the yielded conn directly, which naturally
+        means the primary pool since transaction() doesn't route to
+        replicas.
+        """
+        if not self._replicas:
+            async with self.connect() as conn:
+                yield conn
+            return
+        replica = self._pick_replica()
+        async with replica.connect() as conn:
+            yield conn
 
     # ------------------------------------------------------------------ #
     #  Transactions                                                        #
@@ -504,8 +582,12 @@ class AsyncConnectionManager:
                 return cur.rowcount
 
     async def fetchall(self, sql: str, params: list = None) -> list:
-        """Execute a SELECT and return list of dicts."""
-        async with self.connect() as conn:
+        """Execute a SELECT and return list of dicts.
+
+        Routes through connect_read() — the single funnel every async
+        read path goes through, so configure_replicas() transparently
+        applies everywhere without touching those call sites."""
+        async with self.connect_read() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(sql, params or [])
                 columns = [desc[0] for desc in cur.description]
@@ -567,11 +649,14 @@ class AsyncConnectionManager:
     # ------------------------------------------------------------------ #
 
     async def close(self):
-        """Close all connections in the pool."""
+        """Close all connections in the pool (and any configured read
+        replicas' pools)."""
         if self._pool:
             self._pool.close()
             await self._pool.wait_closed()
             self._pool = None
+        for replica in self._replicas:
+            await replica.close()
 
     def __repr__(self):
         if not self._config:

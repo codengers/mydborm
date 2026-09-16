@@ -230,6 +230,13 @@ class ConnectionManager:
         self._pool_config = None
         self._pg_pool = None
         self._mysql_pool_name_cache = None
+        # Read/write splitting — see configure_replicas(). Each replica is
+        # a full ConnectionManager of its own (own config, own pool, own
+        # thread-local connection), so replica routing is just delegating
+        # to one of these rather than duplicating connection logic.
+        self._replicas: list = []
+        self._replica_counter = 0
+        self._replica_lock = threading.Lock()
 
     # ------------------------------------------------------------------ #
     #  Configuration                                                        #
@@ -282,6 +289,38 @@ class ConnectionManager:
                 "  Linux / macOS      : export DATABASE_URL='mysql://...'"
             )
         self._config = _parse_url(url)
+
+    def configure_replicas(self, *replica_configs):
+        """
+        Configure one or more read replicas for read/write splitting.
+
+        Each replica_config is a dict of the same keyword arguments
+        accepted by configure() (dialect, host, port, user, password,
+        database, ...) — each becomes its own independent ConnectionManager
+        with its own pool and connection.
+
+        Once configured, every read path (QueryBuilder.all()/first()/
+        count()/exists()/sum()/avg()/..., BaseModel.all()/get()/filter()/
+        count(), and db.fetchall()/fetchone()) automatically round-robins
+        across the configured replicas via connect_read(). Writes always
+        go through the primary connection (connect()/transaction()), and
+        reads made from inside an active transaction()/bulk_transaction()
+        also stay on the primary — a replica can't see that transaction's
+        uncommitted writes or hold its locks.
+
+        db.configure(dialect="mysql", host="primary.db", ...)
+        db.configure_replicas(
+            {"dialect": "mysql", "host": "replica1.db", ...},
+            {"dialect": "mysql", "host": "replica2.db", ...},
+        )
+        """
+        replicas = []
+        for cfg in replica_configs:
+            replica = ConnectionManager()
+            replica.configure(**cfg)
+            replicas.append(replica)
+        self._replicas = replicas
+        self._replica_counter = 0
 
     # ------------------------------------------------------------------ #
     #  Internal                                                             #
@@ -419,6 +458,39 @@ class ConnectionManager:
         return self._local.conn
 
     # ------------------------------------------------------------------ #
+    #  Read/write splitting                                                #
+    # ------------------------------------------------------------------ #
+
+    def _pick_replica(self) -> "ConnectionManager":
+        """Round-robin over configured replicas, thread-safe."""
+        with self._replica_lock:
+            idx = self._replica_counter
+            self._replica_counter = (self._replica_counter + 1) % len(self._replicas)
+        return self._replicas[idx]
+
+    @contextmanager
+    def connect_read(self):
+        """
+        Like connect(), but for reads: routes to a configured replica
+        (round-robin) when any are configured via configure_replicas().
+
+        Falls back to the primary connection — same as connect() — when
+        no replicas are configured, or when called from inside an active
+        transaction()/bulk_transaction() on this thread: a replica can't
+        see that transaction's own uncommitted writes or hold its locks
+        (this is also what makes for_update() reads correctly stay on the
+        primary, since for_update() is only meaningful inside a
+        transaction() block).
+        """
+        if not self._replicas or getattr(self._local, "in_transaction", False):
+            with self.connect() as conn:
+                yield conn
+            return
+        replica = self._pick_replica()
+        with replica.connect() as conn:
+            yield conn
+
+    # ------------------------------------------------------------------ #
     #  Connection context manager                                           #
     # ------------------------------------------------------------------ #
 
@@ -461,7 +533,8 @@ class ConnectionManager:
         self.queries.clear()
 
     def close(self):
-        """Close the current thread's connection."""
+        """Close the current thread's connection (and any configured
+        read replicas' connections)."""
         conn = getattr(self._local, "conn", None)
         if conn:
             try:
@@ -474,6 +547,8 @@ class ConnectionManager:
                     conn.close()
             finally:
                 self._local.conn = None
+        for replica in self._replicas:
+            replica.close()
 
     # ------------------------------------------------------------------ #
     #  Raw SQL                                                           #
@@ -493,7 +568,7 @@ class ConnectionManager:
                 "Database not configured.\n"
                 "Call db.configure(...) or db.from_env() first."
             )
-        with self.connect() as conn:
+        with self.connect_read() as conn:
             cur = conn.cursor()
             cur.execute(sql, params or [])
             columns = [desc[0] for desc in cur.description]
