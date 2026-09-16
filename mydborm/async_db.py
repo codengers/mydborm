@@ -22,6 +22,7 @@ from .fields import Field
 from .exceptions import NotConfiguredError, UnsupportedDialectError, RetryExhaustedError
 from .model import QueryBuilderBase, _validate_identifier
 from .cache import query_cache
+from .dialects import get_dialect
 
 async def _call_hook(hook, *args):
     """Call a lifecycle hook that may be defined sync or async — a hook
@@ -31,6 +32,31 @@ async def _call_hook(hook, *args):
     if inspect.isawaitable(result):
         result = await result
     return result
+
+
+async def _async_live_columns(table: str) -> set:
+    """Return the set of column names currently in `table` on the
+    configured async connection, or an empty set if it doesn't exist
+    yet. Used to reconcile Single Table Inheritance's shared table —
+    the async mirror of migrations.get_live_schema() (sync-only, tied
+    to the sync ConnectionManager)."""
+    if async_db.dialect == "sqlite":
+        rows = await async_db.fetchall(f"PRAGMA table_info(`{table}`);")
+        return {row["name"] for row in rows}
+    elif async_db.dialect == "mysql":
+        rows = await async_db.fetchall(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = %s AND table_schema = DATABASE();",
+            [table],
+        )
+        return {row["column_name"] for row in rows}
+    else:
+        rows = await async_db.fetchall(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = %s AND table_schema = 'public';",
+            [table],
+        )
+        return {row["column_name"] for row in rows}
 
 
 _SQL_LOGGER = logging.getLogger("mydborm.sql")
@@ -780,10 +806,34 @@ class AsyncModelMeta(type):
                 attr_value.name = attr_name
                 fields[attr_name] = attr_value
         namespace["_fields"] = fields
-        namespace["_table"]  = namespace.get(
-            "__tablename__",
-            name.lower() + "s"
+
+        # Single Table Inheritance — see ModelMeta (model.py) for the
+        # full rationale; mirrored here for async model parity.
+        parent_model = next(
+            (b for b in bases if getattr(b, "_fields", None) and b is not AsyncBaseModel),
+            None,
         )
+        if parent_model is not None:
+            namespace["_table"] = namespace.get("__tablename__", parent_model._table)
+            parent_disc_col = getattr(parent_model, "_discriminator_col", None)
+            disc_col = namespace.get("__discriminator_col__", parent_disc_col)
+            namespace["_discriminator_col"] = disc_col
+            namespace["_discriminator_value"] = (
+                namespace.get("__discriminator_value__", name) if disc_col else None
+            )
+            namespace["_discriminator_scoped"] = bool(parent_disc_col)
+        else:
+            namespace["_table"] = namespace.get(
+                "__tablename__",
+                name.lower() + "s"
+            )
+            disc_col = namespace.get("__discriminator_col__", None)
+            namespace["_discriminator_col"] = disc_col
+            namespace["_discriminator_value"] = (
+                namespace.get("__discriminator_value__", name) if disc_col else None
+            )
+            namespace["_discriminator_scoped"] = False
+
         return super().__new__(mcs, name, bases, namespace)
 
 
@@ -824,6 +874,22 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
             " (\n" + col_separator.join(col_defs) + "\n);"
         )
         await async_db.execute(sql)
+
+        # Single Table Inheritance: reconcile the shared table against
+        # this subclass's own columns — see ModelMeta/create_table in
+        # model.py for the full rationale, mirrored here for async.
+        if cls._discriminator_col:
+            live = await _async_live_columns(cls._table)
+            for fname, field in cls._fields.items():
+                if fname in live:
+                    continue
+                dialect_cls = get_dialect(async_db.dialect)
+                add_sql = dialect_cls.add_column_sql(
+                    cls._table, fname, field.to_sql_def(async_db.dialect)
+                )
+                await async_db.execute(add_sql)
+                print("[mydborm] Added '" + fname + "' to '" + cls._table + "'")
+
         print("[mydborm] Async table '" + cls._table + "' ready.")
 
     @classmethod
@@ -841,7 +907,16 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
 
     @classmethod
     async def create(cls, **kwargs) -> int:
-        """Insert a new row. Returns the new primary key."""
+        """Insert a new row. Returns the new primary key.
+
+        For a Single Table Inheritance subclass, the discriminator
+        column is auto-filled with this class's discriminator value
+        unless explicitly passed.
+        """
+        if cls._discriminator_col and cls._discriminator_value is not None:
+            kwargs = dict(kwargs)
+            kwargs.setdefault(cls._discriminator_col, cls._discriminator_value)
+
         validated = {}
         for fname, field in cls._fields.items():
             if field.primary_key:
@@ -881,14 +956,30 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
         return await async_db.fetchall(sql, params)
 
     @classmethod
+    def _sti_scoped_kwargs(cls, kwargs: dict) -> dict:
+        """For a Single Table Inheritance subclass, scope reads to just
+        this subtype's rows by injecting the discriminator filter. A
+        no-op for regular models and for the STI base class itself."""
+        if cls._discriminator_col and cls._discriminator_scoped:
+            kwargs = dict(kwargs)
+            kwargs.setdefault(cls._discriminator_col, cls._discriminator_value)
+        return kwargs
+
+    @classmethod
     async def all(cls) -> list:
         """Return all rows."""
+        if cls._discriminator_col and cls._discriminator_scoped:
+            return await cls._fetch(
+                "SELECT * FROM " + cls._table +
+                " WHERE " + cls._discriminator_col + " = %s;",
+                [cls._discriminator_value],
+            )
         return await cls._fetch("SELECT * FROM " + cls._table + ";")
 
     @classmethod
     async def get(cls, **kwargs) -> Optional[dict]:
         """Return a single matching row or None."""
-        where, values = cls._build_where(kwargs)
+        where, values = cls._build_where(cls._sti_scoped_kwargs(kwargs))
         sql = (
             "SELECT * FROM " + cls._table +
             " WHERE " + where + " LIMIT 1;"
@@ -899,7 +990,7 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
     @classmethod
     async def filter(cls, **kwargs) -> list:
         """Return all rows matching kwargs."""
-        where, values = cls._build_where(kwargs)
+        where, values = cls._build_where(cls._sti_scoped_kwargs(kwargs))
         sql = (
             "SELECT * FROM " + cls._table +
             " WHERE " + where + ";"
@@ -909,6 +1000,7 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
     @classmethod
     async def count(cls, **kwargs) -> int:
         """Count rows, optionally filtered."""
+        kwargs = cls._sti_scoped_kwargs(kwargs)
         if kwargs:
             where, values = cls._build_where(kwargs)
             sql  = (
@@ -989,8 +1081,14 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
                        .order_by("name")
                        .limit(10)
                        .all())
+
+        For a Single Table Inheritance subclass, pre-filtered to this
+        subtype's rows via the discriminator column.
         """
-        return AsyncQueryBuilder(cls)
+        qb = AsyncQueryBuilder(cls)
+        if cls._discriminator_col and cls._discriminator_scoped:
+            qb = qb.where(cls._discriminator_col, cls._discriminator_value)
+        return qb
 
     # ------------------------------------------------------------------ #
     #  Bulk operations                                                     #

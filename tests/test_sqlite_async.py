@@ -393,3 +393,68 @@ async def test_async_cache_first_hits():
 
     second = await AsyncSLProduct.query().where("name", "Alice").cache(ttl=60).first()
     assert second["name"] == "Alice"
+
+
+# ------------------------------------------------------------------ #
+#  Async Single Table Inheritance                                     #
+# ------------------------------------------------------------------ #
+
+class ASTIPerson(AsyncBaseModel):
+    __tablename__ = "asti_sl_people"
+    __discriminator_col__ = "type"
+    id   = IntField(primary_key=True)
+    name = StrField(max_length=100, nullable=False)
+    type = StrField(max_length=50, nullable=False)
+
+
+class ASTIEmployee(ASTIPerson):
+    salary = FloatField(nullable=True)
+
+
+async def test_async_sti_shares_table_and_discriminator():
+    assert ASTIPerson._table == "asti_sl_people"
+    assert ASTIEmployee._table == "asti_sl_people"
+    assert ASTIPerson._discriminator_scoped is False
+    assert ASTIEmployee._discriminator_scoped is True
+    assert ASTIEmployee._discriminator_value == "ASTIEmployee"
+
+
+async def test_async_sti_create_table_reconciles_columns():
+    await ASTIPerson.create_table()
+    await ASTIEmployee.create_table()
+
+    from mydborm.async_db import _async_live_columns
+    columns = await _async_live_columns("asti_sl_people")
+    assert "salary" in columns
+
+
+async def test_async_sti_create_auto_fills_discriminator():
+    await ASTIPerson.create_table()
+    await ASTIEmployee.create_table()
+
+    pid = await ASTIPerson.create(name="Alice")
+    prow = await ASTIPerson.get(id=pid)
+    assert prow["type"] == "ASTIPerson"
+
+    eid = await ASTIEmployee.create(name="Bob", salary=1.0)
+    erow = await ASTIPerson.get(id=eid)
+    assert erow["type"] == "ASTIEmployee"
+
+
+async def test_async_sti_read_scoping():
+    await ASTIPerson.create_table()
+    await ASTIEmployee.create_table()
+
+    await ASTIPerson.create(name="Alice")
+    await ASTIEmployee.create(name="Bob", salary=1.0)
+
+    assert len(await ASTIPerson.all()) == 2
+    employees = await ASTIEmployee.all()
+    assert len(employees) == 1
+    assert employees[0]["name"] == "Bob"
+
+    assert await ASTIEmployee.count() == 1
+    assert await ASTIPerson.count() == 2
+
+    qb_rows = await ASTIEmployee.query().all()
+    assert len(qb_rows) == 1
