@@ -176,7 +176,7 @@ Cross-referenced against the codebase as of the post-v1.12.0 `main` (4 unrelease
 - ❌ Database routing
 
 ## Read/Write Splitting
-- ❌ Not implemented
+- ✅ `db.configure_replicas()` / `async_db.configure_replicas()` — one or more read replicas, round-robin selected via `connect_read()`; every read path (QueryBuilder/AsyncQueryBuilder terminal methods, BaseModel/AsyncBaseModel all/get/filter/count, db.fetchall()/async_db.fetchall()) routes through it automatically. Writes always use the primary; reads inside an active `db.transaction()` also stay on the primary (a replica can't see that transaction's uncommitted writes or hold its locks)
 
 ## Sharding Support
 - ❌ Not implemented
@@ -252,4 +252,4 @@ Biggest unimplemented areas, roughly in order of likely value for a "lightweight
 7. ~~Stored procedures + database views mapping~~ — done (`call_procedure()`, `ViewModel`/`AsyncViewModel`)
 8. ~~Query caching~~ — done (`.cache()`, table-level invalidation, `clear_cache()`)
 9. ~~Inheritance mapping~~ — done (Single Table Inheritance; joined/concrete table inheritance out of scope)
-10. **Read/write splitting, sharding, multi-tenancy** — larger architectural additions
+10. ~~Read/write splitting~~ — done (`configure_replicas()`, round-robin `connect_read()`, sync + async); sharding and multi-tenancy remain out of scope as larger architectural additions
