@@ -106,6 +106,7 @@ from .mixins import (
 from .migrate import MigrationEngine, MigrationResult, TypeMapper, ObjectMigrator
 from .async_db import async_db, AsyncBaseModel, AsyncQueryBuilder
 from .seed import seed, seed_from_file, seed_async, seed_from_file_async
+from .cache import query_cache, QueryCache
 
 __version__ = "1.12.0"
 __author__  = "Codengers"
@@ -215,5 +216,8 @@ __all__ = [
     "seed_from_file",
     "seed_async",
     "seed_from_file_async",
+    # Caching
+    "query_cache",
+    "QueryCache",
 ]
 
