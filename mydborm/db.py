@@ -139,6 +139,7 @@ class _SQLiteConnectionAdapter:
 
 
 _SQL_LOGGER = logging.getLogger("mydborm.sql")
+_SLOW_QUERY_LOGGER = logging.getLogger("mydborm.slow_query")
 
 # Cap on ConnectionManager.queries — bounds memory for long-running
 # processes that leave echo=True on, matching Django's connection.queries
@@ -149,20 +150,36 @@ _MAX_TRACKED_QUERIES = 1000
 class _QueryLogCursor:
     """
     Wraps any cursor (mysql-connector, psycopg2, or the sqlite adapter
-    above) to time and log each execute()/executemany() call. Sits
-    *outside* the sqlite %s->? translation layer, so the SQL text logged
-    here is always the original "%s"-style string, consistent across
-    every dialect.
+    above) to time each execute()/executemany() call. Sits *outside* the
+    sqlite %s->? translation layer, so the SQL text logged here is
+    always the original "%s"-style string, consistent across every
+    dialect. Used whenever echo=True and/or slow_query_ms is configured
+    — the two are independent (a production deployment might want slow-
+    query alerts without the overhead/noise of logging every query).
     """
     def __init__(self, raw, manager):
         self._raw = raw
         self._manager = manager
 
     def _record(self, sql, params, duration_ms):
-        _SQL_LOGGER.debug("%s | params=%r | %.2fms", sql, params, duration_ms)
-        queries = self._manager.queries
-        queries.append({"sql": sql, "params": params, "duration_ms": duration_ms})
-        del queries[:-_MAX_TRACKED_QUERIES]
+        manager = self._manager
+        if manager._log_queries:
+            _SQL_LOGGER.debug("%s | params=%r | %.2fms", sql, params, duration_ms)
+            queries = manager.queries
+            queries.append({"sql": sql, "params": params, "duration_ms": duration_ms})
+            del queries[:-_MAX_TRACKED_QUERIES]
+
+        threshold = manager._slow_query_ms
+        if threshold is not None and duration_ms >= threshold:
+            _SLOW_QUERY_LOGGER.warning(
+                "%.2fms | %s | params=%r", duration_ms, sql, params
+            )
+            callback = manager._on_slow_query
+            if callback is not None:
+                try:
+                    callback(sql, params, duration_ms)
+                except Exception:
+                    _SLOW_QUERY_LOGGER.exception("on_slow_query callback raised")
 
     def execute(self, sql, params=None):
         start = time.perf_counter()
@@ -220,6 +237,11 @@ class ConnectionManager:
         self._encoding: str  = "utf-8"
         self._log_queries: bool = False
         self.queries: list = []
+        # Slow-query monitoring — see configure(). Independent of echo:
+        # a production deployment can get slow-query alerts without
+        # paying for (or being spammed by) logging every single query.
+        self._slow_query_ms = None
+        self._on_slow_query = None
         # Per-instance thread-local connection storage — lets multiple
         # ConnectionManager instances (e.g. migration source + target)
         # hold independent connections within the same thread.
@@ -258,6 +280,16 @@ class ConnectionManager:
             echo (bool): log every executed SQL statement (with params and
                 duration) via the "mydborm.sql" logger, and record it in
                 .queries — default False
+            slow_query_ms (float): if set, any executed statement taking
+                at least this many milliseconds is logged via the
+                "mydborm.slow_query" logger at WARNING level — independent
+                of echo, so slow-query alerting doesn't require paying
+                for (or being spammed by) logging every query. default
+                None (disabled)
+            on_slow_query (callable): optional callback invoked as
+                on_slow_query(sql, params, duration_ms) for each
+                statement that meets slow_query_ms. Exceptions it raises
+                are caught and logged, never propagated to the caller.
         """
         if "dialect" not in kwargs:
             raise UnsupportedDialectError(
@@ -271,8 +303,10 @@ class ConnectionManager:
         self._teardown_pools()
         self._pool_config = None
         # Store Python encoding separately — not passed to driver
-        self._encoding    = kwargs.pop("encoding", "utf-8")
-        self._log_queries = kwargs.pop("echo", False)
+        self._encoding      = kwargs.pop("encoding", "utf-8")
+        self._log_queries   = kwargs.pop("echo", False)
+        self._slow_query_ms = kwargs.pop("slow_query_ms", None)
+        self._on_slow_query = kwargs.pop("on_slow_query", None)
         self._config      = kwargs
 
     def from_env(self, var: str = "DATABASE_URL"):
@@ -511,7 +545,7 @@ class ConnectionManager:
             )
 
         conn = self._get_or_create_connection()
-        if self._log_queries:
+        if self._log_queries or self._slow_query_ms is not None:
             conn = _QueryLogConnection(conn, self)
         # Inside an active transaction()/bulk_transaction() on this thread's
         # connection, don't commit/rollback here — that would prematurely
@@ -752,7 +786,7 @@ class ConnectionManager:
         self._recycle_if_stale()
         if getattr(self._local, "conn", None):
             conn = self._local.conn
-            if self._log_queries:
+            if self._log_queries or self._slow_query_ms is not None:
                 conn = _QueryLogConnection(conn, self)
             cur = conn.cursor()
             cur.execute(sql, params or [])

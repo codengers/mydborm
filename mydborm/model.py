@@ -816,6 +816,21 @@ class QueryBuilder(QueryBuilderBase):
         result = list(rows[0].values())[0]
         return float(result) if result is not None else 0.0
 
+    def explain(self) -> list:
+        """
+        Return the database's query plan for this query (EXPLAIN).
+
+        Item shape is dialect-specific (MySQL/SQLite return an execution
+        plan table; PostgreSQL/YugabyteDB return plan text lines) — this
+        is for introspection/debugging, not something to branch logic
+        on. Returned as plain dicts, not ModelInstance, since EXPLAIN's
+        columns don't correspond to the model's own fields.
+
+        Item.query().where("active", True).explain()
+        """
+        sql, params = self._build_sql()
+        return db.fetchall("EXPLAIN " + sql + ";", params)
+
     def min(self, field: str):
         """Return MIN of a field."""
         _validate_identifier(field)
@@ -1248,6 +1263,12 @@ class BaseModel(metaclass=ModelMeta):
                 col_defs.append(
                     f"  FOREIGN KEY (`{fname}`) REFERENCES `{ref_model._table}` (`{ref_pk}`){actions}"
                 )
+
+        # Table-level CHECK constraints — __checks__ = ["start_date < end_date", ...]
+        # for constraints spanning more than one column; single-column
+        # constraints are more naturally declared via Field(check=...).
+        for expr in getattr(cls, "__checks__", []):
+            col_defs.append(f"  CHECK ({expr})")
 
         col_separator = ",\n"
         if db.dialect in ("yugabyte", "postgres"):

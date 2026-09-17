@@ -659,3 +659,18 @@ def test_for_update_blocks_concurrent_transaction():
 
     assert result.get("waited", 0) > 0.3  # blocked until holder released
 
+
+# ------------------------------------------------------------------ #
+#  explain()                                                           #
+# ------------------------------------------------------------------ #
+
+def test_explain_returns_plan_rows():
+    rows = Item.query().where("active", True).explain()
+    assert len(rows) >= 1
+    assert isinstance(rows[0], dict)
+
+
+def test_explain_returns_plain_dicts_not_model_instances():
+    rows = Item.query().explain()
+    assert type(rows[0]) is dict
+

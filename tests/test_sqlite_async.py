@@ -458,3 +458,40 @@ async def test_async_sti_read_scoping():
 
     qb_rows = await ASTIEmployee.query().all()
     assert len(qb_rows) == 1
+
+
+# ------------------------------------------------------------------ #
+#  Async explain()                                                     #
+# ------------------------------------------------------------------ #
+
+async def test_async_explain_returns_plan_rows():
+    await AsyncSLProduct.create(name="Widget", price=1.0)
+    rows = await AsyncSLProduct.query().where("active", True).explain()
+    assert len(rows) >= 1
+    assert type(rows[0]) is dict
+
+
+# ------------------------------------------------------------------ #
+#  Async CHECK constraints                                             #
+# ------------------------------------------------------------------ #
+
+class AsyncCKProduct(AsyncBaseModel):
+    __tablename__ = "async_ck_products"
+    __checks__    = ["start_qty <= max_qty"]
+    id        = IntField(primary_key=True)
+    price     = FloatField(nullable=False, check="price > 0")
+    start_qty = IntField(nullable=False, default=0)
+    max_qty   = IntField(nullable=False, default=100)
+
+
+async def test_async_field_level_check_rejects_violation():
+    await AsyncCKProduct.create_table()
+    await AsyncCKProduct.create(price=9.99, start_qty=1, max_qty=10)
+    with pytest.raises(Exception):
+        await AsyncCKProduct.create(price=-1, start_qty=1, max_qty=10)
+
+
+async def test_async_table_level_check_rejects_violation():
+    await AsyncCKProduct.create_table()
+    with pytest.raises(Exception):
+        await AsyncCKProduct.create(price=5, start_qty=50, max_qty=10)

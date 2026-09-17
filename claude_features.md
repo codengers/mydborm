@@ -123,7 +123,7 @@ Cross-referenced against the codebase as of the post-v1.12.0 `main` (4 unrelease
 
 ## Constraint Management
 - ✅ Primary keys, foreign keys, unique constraints
-- ❌ CHECK constraints
+- ✅ CHECK constraints — `Field(check="price > 0")` for single-column constraints, `__checks__ = [...]` for table-level (multi-column) constraints. MySQL 8.0.16+, PostgreSQL, YugabyteDB, SQLite. Sync + async
 
 ## Inheritance Mapping
 - ✅ Single table inheritance — subclassing a model shares its parent's table by default; `__discriminator_col__` + auto-derived `__discriminator_value__` (class name) scope reads (`all`/`get`/`filter`/`count`/`exists`/`query`) to the subtype while the base class still sees every subtype; `create()` auto-fills the discriminator; `create_table()` reconciles the shared table's columns across the whole hierarchy regardless of call order. Sync + async.
@@ -194,7 +194,7 @@ Cross-referenced against the codebase as of the post-v1.12.0 `main` (4 unrelease
 
 ## Debugging Support
 - ✅ `db.queries` exposes executed SQL + params + duration_ms for inspection
-- ❌ No EXPLAIN helper exposed on QueryBuilder
+- ✅ `.explain()` on `QueryBuilder`/`AsyncQueryBuilder` — returns the database's EXPLAIN plan as plain dicts (dialect-specific shape). Sync + async
 
 ## Security Features
 - ✅ Parameterized queries throughout (SQL injection protection)
@@ -235,7 +235,7 @@ Cross-referenced against the codebase as of the post-v1.12.0 `main` (4 unrelease
 - ❌ No `LazyRelation` equivalent for async (a descriptor's `__get__` can't be `async def`) and `.include()` eager loading raises `NotImplementedError` — both documented as intentional API differences, not gaps
 
 ## Monitoring Integration
-- ❌ No query metrics / slow-query tracking / performance monitoring hooks
+- ✅ Slow-query tracking — `db.configure(slow_query_ms=..., on_slow_query=...)` / `async_db.configure(...)`: any statement at or above the threshold logs via the `mydborm.slow_query` logger (WARNING) and invokes the optional callback `(sql, params, duration_ms)`; independent of `echo` (no need to log every query just to get slow-query alerts); callback exceptions are caught and logged, never propagated. Sync + async
 
 ---
 
@@ -253,3 +253,6 @@ Biggest unimplemented areas, roughly in order of likely value for a "lightweight
 8. ~~Query caching~~ — done (`.cache()`, table-level invalidation, `clear_cache()`)
 9. ~~Inheritance mapping~~ — done (Single Table Inheritance; joined/concrete table inheritance out of scope)
 10. ~~Read/write splitting~~ — done (`configure_replicas()`, round-robin `connect_read()`, sync + async); sharding and multi-tenancy remain out of scope as larger architectural additions
+11. ~~Slow-query monitoring~~ — done (`slow_query_ms`/`on_slow_query`, independent of `echo`)
+12. ~~EXPLAIN helper~~ — done (`.explain()` on QueryBuilder/AsyncQueryBuilder)
+13. ~~CHECK constraints~~ — done (`Field(check=...)`, `__checks__`)

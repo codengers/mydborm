@@ -600,6 +600,17 @@ async def test_async_clear_cache_forces_refresh():
 
 
 # ------------------------------------------------------------------ #
+#  Async explain()                                                     #
+# ------------------------------------------------------------------ #
+
+async def test_async_explain_returns_plan_rows_mysql():
+    await AsyncProduct.create(name="Widget", price=1.0)
+    rows = await AsyncProduct.query().where("active", True).explain()
+    assert len(rows) >= 1
+    assert type(rows[0]) is dict
+
+
+# ------------------------------------------------------------------ #
 #  Async lifecycle hooks                                                #
 # ------------------------------------------------------------------ #
 
