@@ -119,3 +119,88 @@ def test_migration_engine_connection_manager_supports_echo():
     with mgr.connect() as conn:
         conn.cursor().execute("SELECT 1")
     assert len(mgr.queries) == 1
+
+
+# ------------------------------------------------------------------ #
+#  Slow-query monitoring                                               #
+# ------------------------------------------------------------------ #
+
+def test_slow_query_threshold_fires_callback_independent_of_echo():
+    calls = []
+    db.configure(
+        dialect="sqlite", database=":memory:",
+        echo=False, slow_query_ms=0, on_slow_query=lambda sql, params, ms: calls.append((sql, ms)),
+    )
+    QLProduct.create_table()
+    db.clear_queries()
+    calls.clear()
+    QLProduct.create(name="Widget")
+
+    assert len(calls) >= 1
+    assert db.queries == []  # echo is off — no .queries tracking
+
+
+def test_slow_query_threshold_not_met_no_callback():
+    calls = []
+    db.configure(
+        dialect="sqlite", database=":memory:",
+        slow_query_ms=100_000, on_slow_query=lambda sql, params, ms: calls.append((sql, ms)),
+    )
+    QLProduct.create_table()
+    calls.clear()
+    QLProduct.create(name="Widget")
+
+    assert calls == []
+
+
+def test_slow_query_disabled_by_default():
+    calls = []
+    db.configure(
+        dialect="sqlite", database=":memory:",
+        on_slow_query=lambda sql, params, ms: calls.append((sql, ms)),
+    )
+    QLProduct.create_table()
+    calls.clear()
+    QLProduct.create(name="Widget")
+
+    assert calls == []
+
+
+def test_slow_query_logs_at_warning_level(caplog):
+    db.configure(dialect="sqlite", database=":memory:", slow_query_ms=0)
+    QLProduct.create_table()
+    with caplog.at_level(logging.WARNING, logger="mydborm.slow_query"):
+        QLProduct.create(name="Widget")
+    messages = [r.message for r in caplog.records if r.name == "mydborm.slow_query"]
+    assert any("INSERT" in m for m in messages)
+
+
+def test_slow_query_callback_exception_does_not_break_query():
+    def bad_callback(sql, params, ms):
+        raise RuntimeError("boom")
+
+    db.configure(
+        dialect="sqlite", database=":memory:",
+        slow_query_ms=0, on_slow_query=bad_callback,
+    )
+    QLProduct.create_table()
+    pid = QLProduct.create(name="Widget")
+    assert pid is not None
+    assert QLProduct.get(id=pid)["name"] == "Widget"
+
+
+def test_slow_query_db_execute_fast_path_also_monitored():
+    # db.execute() has a fast-path that reuses an existing cached
+    # connection instead of going through connect() — must still be
+    # wrapped when slow_query_ms is set (mirrors the echo regression
+    # guard above).
+    calls = []
+    db.configure(
+        dialect="sqlite", database=":memory:",
+        slow_query_ms=0, on_slow_query=lambda sql, params, ms: calls.append((sql, ms)),
+    )
+    QLProduct.create_table()
+    QLProduct.create(name="First")  # establishes + caches a connection
+    calls.clear()
+    db.execute("UPDATE ql_products SET name = %s WHERE name = %s", ["Second", "First"])
+    assert any("UPDATE" in sql for sql, _ in calls)

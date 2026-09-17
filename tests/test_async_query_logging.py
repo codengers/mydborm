@@ -92,3 +92,72 @@ async def test_async_get_is_logged():
     await AsyncQLProduct.get(id=pid)
     selects = [q for q in async_db.queries if "SELECT" in q["sql"]]
     assert len(selects) == 1
+
+
+# ------------------------------------------------------------------ #
+#  Slow-query monitoring                                               #
+# ------------------------------------------------------------------ #
+
+async def test_slow_query_threshold_fires_callback_independent_of_echo():
+    calls = []
+    await async_db.configure(
+        dialect="sqlite", database=":memory:",
+        echo=False, slow_query_ms=0, on_slow_query=lambda sql, params, ms: calls.append((sql, ms)),
+    )
+    await AsyncQLProduct.create_table()
+    async_db.clear_queries()
+    calls.clear()
+    await AsyncQLProduct.create(name="Widget")
+
+    assert len(calls) >= 1
+    assert async_db.queries == []  # echo is off — no .queries tracking
+
+
+async def test_slow_query_threshold_not_met_no_callback():
+    calls = []
+    await async_db.configure(
+        dialect="sqlite", database=":memory:",
+        slow_query_ms=100_000, on_slow_query=lambda sql, params, ms: calls.append((sql, ms)),
+    )
+    await AsyncQLProduct.create_table()
+    calls.clear()
+    await AsyncQLProduct.create(name="Widget")
+
+    assert calls == []
+
+
+async def test_slow_query_disabled_by_default():
+    calls = []
+    await async_db.configure(
+        dialect="sqlite", database=":memory:",
+        on_slow_query=lambda sql, params, ms: calls.append((sql, ms)),
+    )
+    await AsyncQLProduct.create_table()
+    calls.clear()
+    await AsyncQLProduct.create(name="Widget")
+
+    assert calls == []
+
+
+async def test_slow_query_logs_at_warning_level(caplog):
+    await async_db.configure(dialect="sqlite", database=":memory:", slow_query_ms=0)
+    await AsyncQLProduct.create_table()
+    with caplog.at_level(logging.WARNING, logger="mydborm.slow_query"):
+        await AsyncQLProduct.create(name="Widget")
+    messages = [r.message for r in caplog.records if r.name == "mydborm.slow_query"]
+    assert any("INSERT" in m for m in messages)
+
+
+async def test_slow_query_callback_exception_does_not_break_query():
+    def bad_callback(sql, params, ms):
+        raise RuntimeError("boom")
+
+    await async_db.configure(
+        dialect="sqlite", database=":memory:",
+        slow_query_ms=0, on_slow_query=bad_callback,
+    )
+    await AsyncQLProduct.create_table()
+    pid = await AsyncQLProduct.create(name="Widget")
+    assert pid is not None
+    row = await AsyncQLProduct.get(id=pid)
+    assert row["name"] == "Widget"

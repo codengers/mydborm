@@ -55,6 +55,7 @@ class Field:
         unique: bool = False,
         index: bool = False,
         validators: list = None,
+        check: Optional[str] = None,
     ):
         self.primary_key = primary_key
         self.nullable    = nullable
@@ -62,6 +63,10 @@ class Field:
         self.unique      = unique
         self.index       = index
         self.validators  = validators or []
+        # Raw SQL boolean expression (e.g. "price > 0") added as a
+        # column-level CHECK constraint by to_sql_def() — trusted,
+        # developer-supplied SQL, same trust model as where_raw().
+        self.check       = check
         self.name: Optional[str] = None   # set by ModelMeta
 
     def validate(self, value: Any) -> Any:
@@ -96,6 +101,8 @@ class Field:
             parts.append("UNIQUE")
         if self.default is not None and not self.primary_key:
             parts.append(f"DEFAULT {self._format_default()}")
+        if self.check:
+            parts.append(f"CHECK ({self.check})")
         return " ".join(parts)
 
     def _format_default(self) -> str:

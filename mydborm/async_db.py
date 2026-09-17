@@ -73,6 +73,7 @@ async def _async_live_columns(table: str) -> set:
 
 
 _SQL_LOGGER = logging.getLogger("mydborm.sql")
+_SLOW_QUERY_LOGGER = logging.getLogger("mydborm.slow_query")
 
 # Same cap as the sync side (db.py) — bounds memory for long-running
 # processes that leave echo=True on.
@@ -174,16 +175,32 @@ class _AsyncSQLitePool:
 # ------------------------------------------------------------------ #
 
 class _AsyncQueryLogCursor:
-    """Wraps any async cursor to time and log each execute()/executemany()."""
+    """Wraps any async cursor to time each execute()/executemany() call.
+    Used whenever echo=True and/or slow_query_ms is configured — see
+    ConnectionManager's sync equivalent (db.py) for the rationale."""
     def __init__(self, raw, manager):
         self._raw = raw
         self._manager = manager
 
     def _record(self, sql, params, duration_ms):
-        _SQL_LOGGER.debug("%s | params=%r | %.2fms", sql, params, duration_ms)
-        queries = self._manager.queries
-        queries.append({"sql": sql, "params": params, "duration_ms": duration_ms})
-        del queries[:-_MAX_TRACKED_QUERIES]
+        manager = self._manager
+        if manager._log_queries:
+            _SQL_LOGGER.debug("%s | params=%r | %.2fms", sql, params, duration_ms)
+            queries = manager.queries
+            queries.append({"sql": sql, "params": params, "duration_ms": duration_ms})
+            del queries[:-_MAX_TRACKED_QUERIES]
+
+        threshold = manager._slow_query_ms
+        if threshold is not None and duration_ms >= threshold:
+            _SLOW_QUERY_LOGGER.warning(
+                "%.2fms | %s | params=%r", duration_ms, sql, params
+            )
+            callback = manager._on_slow_query
+            if callback is not None:
+                try:
+                    callback(sql, params, duration_ms)
+                except Exception:
+                    _SLOW_QUERY_LOGGER.exception("on_slow_query callback raised")
 
     async def execute(self, sql, params=None):
         start = time.perf_counter()
@@ -265,6 +282,10 @@ class AsyncConnectionManager:
         self._pool    = None
         self._log_queries = False
         self.queries: list = []
+        # Slow-query monitoring — see configure(). Independent of echo,
+        # same rationale as the sync side (db.py).
+        self._slow_query_ms = None
+        self._on_slow_query = None
         # Read/write splitting — see configure_replicas(). Mirrors
         # ConnectionManager's design (db.py): each replica is a full
         # AsyncConnectionManager of its own, with its own pool.
@@ -283,12 +304,23 @@ class AsyncConnectionManager:
             echo (bool): log every executed SQL statement (with params and
                 duration) via the "mydborm.sql" logger, and record it in
                 .queries — default False
+            slow_query_ms (float): if set, any executed statement taking
+                at least this many milliseconds is logged via the
+                "mydborm.slow_query" logger at WARNING level — independent
+                of echo. default None (disabled)
+            on_slow_query (callable): optional *sync* callback invoked as
+                on_slow_query(sql, params, duration_ms) for each statement
+                that meets slow_query_ms (not awaited — keep it fast, or
+                have it hand off to a queue/thread). Exceptions it raises
+                are caught and logged, never propagated to the caller.
         """
         if "dialect" not in kwargs:
             raise UnsupportedDialectError(
                 "dialect is required: 'mysql', 'yugabyte', or 'sqlite'"
             )
-        self._log_queries = kwargs.pop("echo", False)
+        self._log_queries   = kwargs.pop("echo", False)
+        self._slow_query_ms = kwargs.pop("slow_query_ms", None)
+        self._on_slow_query = kwargs.pop("on_slow_query", None)
         self._config = kwargs
         await self._create_pool()
 
@@ -418,7 +450,7 @@ class AsyncConnectionManager:
                 "Call: await async_db.configure(...) first."
             )
         async with self._pool.acquire() as conn:
-            if self._log_queries:
+            if self._log_queries or self._slow_query_ms is not None:
                 conn = _AsyncQueryLogConnection(conn, self)
             try:
                 yield conn
@@ -771,6 +803,15 @@ class AsyncQueryBuilder(QueryBuilderBase):
         result = list(rows[0].values())[0]
         return float(result) if result is not None else 0.0
 
+    async def explain(self) -> list:
+        """
+        Return the database's query plan for this query (EXPLAIN).
+        See the sync QueryBuilder.explain() docstring (model.py) for
+        the full rationale — mirrored here for async parity.
+        """
+        sql, params = self._build_sql()
+        return await async_db.fetchall("EXPLAIN " + sql + ";", params)
+
     async def min(self, field: str):
         """Return MIN of a field."""
         _validate_identifier(field)
@@ -954,6 +995,12 @@ class AsyncBaseModel(metaclass=AsyncModelMeta):
         col_separator = ",\n"
         for fname, field in cls._fields.items():
             col_defs.append("  " + fname + " " + field.to_sql_def(async_db.dialect))
+
+        # Table-level CHECK constraints — see BaseModel.create_table()
+        # (model.py) for the full rationale, mirrored here for async.
+        for expr in getattr(cls, "__checks__", []):
+            col_defs.append("  CHECK (" + expr + ")")
+
         sql = (
             "CREATE TABLE " + exist + cls._table +
             " (\n" + col_separator.join(col_defs) + "\n);"
